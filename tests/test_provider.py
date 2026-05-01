@@ -10,16 +10,25 @@ from tts_app.providers.registry import get_provider
 @pytest.mark.asyncio
 async def test_fake_provider_streams_deterministic_chunks():
     provider = FakeTTSProvider()
+    options = TTSOptions(voice="Test", audio_format="mp3")
 
     chunks = [
         chunk
         async for chunk in provider.stream_speech(
             "Hello world.",
-            TTSOptions(voice="Test", audio_format="mp3"),
+            options,
+        )
+    ]
+    repeated_chunks = [
+        chunk
+        async for chunk in provider.stream_speech(
+            "Hello world.",
+            options,
         )
     ]
 
     assert chunks[0].mime_type == "audio/mpeg"
+    assert chunks[0].data == repeated_chunks[0].data
     assert b"FAKE-TTS" in chunks[0].data
     assert b"Hello world." in chunks[0].data
 
