@@ -49,7 +49,7 @@ async def test_qwen_provider_sends_realtime_events_and_yields_audio():
         realtime_url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime",
         connect=connect,
     )
-    options = TTSOptions(voice="Cherry", audio_format="mp3", language="Chinese", sample_rate=16000)
+    options = TTSOptions(voice="Cherry", audio_format="mp3", language="Chinese", sample_rate=16000, speed=1.25)
 
     chunks = [chunk async for chunk in provider.stream_speech("hello", options)]
 
@@ -69,6 +69,7 @@ async def test_qwen_provider_sends_realtime_events_and_yields_audio():
     assert websocket.sent_events[0]["session"]["language_type"] == "Chinese"
     assert websocket.sent_events[0]["session"]["response_format"] == "mp3"
     assert websocket.sent_events[0]["session"]["sample_rate"] == 16000
+    assert websocket.sent_events[0]["session"]["speech_rate"] == 1.25
     assert websocket.sent_events[1]["text"] == "hello"
     assert websocket.closed is True
 

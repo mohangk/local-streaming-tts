@@ -48,14 +48,14 @@ class GenerationService:
         await self.broker.publish(generation_id, {"type": "generation_created", "generation_id": generation_id})
         return generation_id
 
-    async def run_generation(self, generation_id: int, voice: str = "Test") -> None:
+    async def run_generation(self, generation_id: int, voice: str = "Test", speed: float = 1.0) -> None:
         detail = self.storage.get_generation(generation_id)
         self.storage.update_generation_status(generation_id, "running")
         await self.broker.publish(generation_id, {"type": "generation_started", "generation_id": generation_id})
 
         try:
             for text_segment in detail["text_segments"]:
-                await self._run_segment(generation_id, text_segment, voice)
+                await self._run_segment(generation_id, text_segment, TTSOptions(voice=voice, speed=speed))
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -69,7 +69,7 @@ class GenerationService:
         self.storage.update_generation_status(generation_id, "completed")
         await self.broker.publish(generation_id, {"type": "generation_completed", "generation_id": generation_id})
 
-    async def _run_segment(self, generation_id: int, text_segment: dict[str, Any], voice: str) -> None:
+    async def _run_segment(self, generation_id: int, text_segment: dict[str, Any], options: TTSOptions) -> None:
         segment_index = int(text_segment["segment_index"])
         self.storage.update_text_segment_status(int(text_segment["id"]), "running")
 
@@ -81,7 +81,7 @@ class GenerationService:
             data_parts: list[bytes] = []
             mime_type = "audio/mpeg"
             extension = "mp3"
-            async for chunk in self.provider.stream_speech(text_segment["text"], TTSOptions(voice=voice)):
+            async for chunk in self.provider.stream_speech(text_segment["text"], options):
                 data_parts.append(chunk.data)
                 mime_type = chunk.mime_type
                 extension = chunk.extension

@@ -6,6 +6,12 @@ const state = {
   currentSegmentIndex: 0,
   eventSource: null,
   autoplay: false,
+  options: {
+    default_voice: "Cherry",
+    default_speed: 1.0,
+    voices: [{ value: "Cherry", label: "Cherry" }],
+    speeds: [{ value: 1.0, label: "1x" }],
+  },
 };
 
 const views = document.querySelectorAll(".view");
@@ -17,6 +23,8 @@ const urlInput = document.querySelector("#url-input");
 const textLabel = document.querySelector("#text-label");
 const urlLabel = document.querySelector("#url-label");
 const generateForm = document.querySelector("#generate-form");
+const voiceSelect = document.querySelector("#voice-select");
+const speedSelect = document.querySelector("#speed-select");
 const autoplayInput = document.querySelector("#autoplay");
 const historySearch = document.querySelector("#history-search");
 const historyList = document.querySelector("#history-list");
@@ -67,6 +75,8 @@ async function submitGeneration(event) {
   const payload = {
     autoplay: state.autoplay,
   };
+  payload.voice = voiceSelect.value;
+  payload.speed = Number(speedSelect.value || "1");
 
   if (isText) {
     payload.text = textInput.value.trim();
@@ -97,6 +107,34 @@ async function submitGeneration(event) {
   } catch {
     playerStatus.textContent = "Generation failed to start";
   }
+}
+
+async function loadOptions() {
+  try {
+    const response = await fetch("/api/options");
+    if (response.ok) {
+      state.options = await response.json();
+    }
+  } catch {
+    // Keep built-in fallback options when the app starts before the API responds.
+  }
+  renderOptions();
+}
+
+function renderOptions() {
+  voiceSelect.innerHTML = state.options.voices
+    .map((voice) => {
+      const selected = voice.value === state.options.default_voice ? " selected" : "";
+      return `<option value="${escapeHtml(voice.value)}"${selected}>${escapeHtml(voice.label)}</option>`;
+    })
+    .join("");
+
+  speedSelect.innerHTML = state.options.speeds
+    .map((speed) => {
+      const selected = Number(speed.value) === Number(state.options.default_speed) ? " selected" : "";
+      return `<option value="${escapeHtml(speed.value)}"${selected}>${escapeHtml(speed.label)}</option>`;
+    })
+    .join("");
 }
 
 async function loadHistory() {
@@ -389,4 +427,5 @@ audioPlayer.addEventListener("ended", () => {
   }
 });
 
+loadOptions();
 loadHistory();

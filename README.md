@@ -37,8 +37,10 @@ TTS_PROVIDER=qwen
 DASHSCOPE_API_KEY=...
 QWEN_MODEL=qwen3-tts-flash-realtime
 QWEN_REALTIME_URL=wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime
-QWEN_VOICE=Cherry
+QWEN_VOICE=Jennifer
 ```
+
+The Generate page loads English-capable Qwen voice choices and speed presets from `/api/options`. The selected voice and speed are stored with each generation.
 
 ## Tests
 

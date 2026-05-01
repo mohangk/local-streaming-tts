@@ -145,6 +145,19 @@ def test_submit_text_defaults_to_configured_qwen_voice(test_settings):
     assert detail["generation"]["voice"] == test_settings.qwen_voice
 
 
+def test_options_returns_voice_and_speed_choices(test_settings):
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    response = client.get("/api/options")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["default_voice"] == test_settings.qwen_voice
+    assert {"value": "Jennifer", "label": "Jennifer - American English female"} in body["voices"]
+    assert {"value": 1.25, "label": "1.25x"} in body["speeds"]
+
+
 def test_submit_text_preserves_explicit_voice(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
@@ -157,6 +170,32 @@ def test_submit_text_preserves_explicit_voice(test_settings):
     detail = client.get(f"/api/generations/{generation_id}").json()
 
     assert detail["generation"]["voice"] == "Custom"
+
+
+def test_submit_text_persists_selected_speed(test_settings):
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    generation_id = client.post(
+        "/api/generations/text",
+        json={"text": "Hello world.", "title": "Note", "speed": 1.25},
+    ).json()["generation_id"]
+
+    detail = client.get(f"/api/generations/{generation_id}").json()
+
+    assert detail["generation"]["settings"]["speed"] == 1.25
+
+
+def test_submit_text_rejects_invalid_speed(test_settings):
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/generations/text",
+        json={"text": "Hello world.", "title": "Note", "speed": 2.5},
+    )
+
+    assert response.status_code == 422
 
 
 def test_submit_url_defaults_to_configured_qwen_voice(test_settings, monkeypatch):

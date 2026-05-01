@@ -23,6 +23,17 @@ class FailingProvider:
         yield AudioChunk(data=b"", mime_type="audio/mpeg", extension="mp3")
 
 
+class CapturingProvider:
+    name = "capturing"
+
+    def __init__(self):
+        self.options: list[TTSOptions] = []
+
+    async def stream_speech(self, text: str, options: TTSOptions) -> AsyncIterator[AudioChunk]:
+        self.options.append(options)
+        yield AudioChunk(data=b"audio", mime_type="audio/mpeg", extension="mp3")
+
+
 @pytest.mark.asyncio
 async def test_generation_service_persists_segments_and_audio(test_settings):
     storage = Storage(test_settings.db_path)
@@ -46,6 +57,26 @@ async def test_generation_service_persists_segments_and_audio(test_settings):
     assert len(detail["audio_segments"]) == 2
     for audio in detail["audio_segments"]:
         assert test_settings.audio_dir in (test_settings.data_dir / audio["file_path"]).parents
+
+
+@pytest.mark.asyncio
+async def test_generation_service_passes_speed_to_provider(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    broker = EventBroker()
+    provider = CapturingProvider()
+    service = GenerationService(
+        storage=storage,
+        provider=provider,
+        broker=broker,
+        audio_dir=test_settings.audio_dir,
+        segment_max_chars=20,
+    )
+
+    generation_id = await service.create_from_text("Hello world.", title="Manual text", voice="Jennifer")
+    await service.run_generation(generation_id, voice="Jennifer", speed=1.25)
+
+    assert provider.options == [TTSOptions(voice="Jennifer", speed=1.25)]
 
 
 @pytest.mark.asyncio

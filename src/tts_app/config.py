@@ -29,7 +29,7 @@ def load_settings() -> Settings:
         qwen_api_key=os.environ.get("QWEN_API_KEY") or os.environ.get("DASHSCOPE_API_KEY"),
         qwen_model=os.environ.get("QWEN_MODEL", "qwen3-tts-flash-realtime"),
         qwen_realtime_url=os.environ.get("QWEN_REALTIME_URL", "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime"),
-        qwen_voice=os.environ.get("QWEN_VOICE", "Cherry"),
+        qwen_voice=os.environ.get("QWEN_VOICE", "Jennifer"),
         default_audio_ext=os.environ.get("TTS_AUDIO_EXT", "mp3"),
         segment_max_chars=int(os.environ.get("TTS_SEGMENT_MAX_CHARS", "550")),
     )

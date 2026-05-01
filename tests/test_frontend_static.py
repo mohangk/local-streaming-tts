@@ -15,6 +15,8 @@ def test_frontend_has_generate_history_and_playback_views():
     assert 'id="history-view"' in html
     assert 'id="playback-view"' in html
     assert 'id="autoplay"' in html
+    assert 'id="voice-select"' in html
+    assert 'id="speed-select"' in html
 
 
 def test_frontend_javascript_uses_history_and_event_endpoints():
@@ -22,6 +24,9 @@ def test_frontend_javascript_uses_history_and_event_endpoints():
 
     assert "/api/generations/text" in js
     assert "/api/generations/url" in js
+    assert "/api/options" in js
+    assert "payload.voice" in js
+    assert "payload.speed" in js
     assert "EventSource" in js
     assert "scrollIntoView" in js
 

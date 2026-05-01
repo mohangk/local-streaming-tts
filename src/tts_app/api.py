@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
@@ -12,6 +13,7 @@ from tts_app.config import Settings, load_settings
 from tts_app.events import EventBroker
 from tts_app.extractor import ExtractionError, fetch_and_extract
 from tts_app.generation import GenerationService
+from tts_app.providers.options import SelectOption
 from tts_app.providers.registry import get_provider
 from tts_app.storage import Storage
 
@@ -20,12 +22,14 @@ class TextGenerationRequest(BaseModel):
     text: str = Field(min_length=1)
     title: str = "Manual text"
     voice: str | None = None
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
     autoplay: bool = True
 
 
 class UrlGenerationRequest(BaseModel):
     url: str = Field(min_length=1)
     voice: str | None = None
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
     autoplay: bool = True
 
 
@@ -54,6 +58,18 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     async def index() -> str:
         return (Path(__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
 
+    @app.get("/api/options")
+    async def options():
+        voices = _option_dicts(getattr(provider, "voice_options", ()))
+        if active_settings.qwen_voice not in {str(option["value"]) for option in voices}:
+            voices.insert(0, {"value": active_settings.qwen_voice, "label": active_settings.qwen_voice})
+        return {
+            "default_voice": active_settings.qwen_voice,
+            "default_speed": 1.0,
+            "voices": voices,
+            "speeds": _option_dicts(getattr(provider, "speed_options", ())),
+        }
+
     @app.post("/api/generations/text")
     async def submit_text(payload: TextGenerationRequest, background_tasks: BackgroundTasks):
         voice = payload.voice or active_settings.qwen_voice
@@ -61,9 +77,9 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             text=payload.text,
             title=payload.title,
             voice=voice,
-            settings={"autoplay": payload.autoplay},
+            settings={"autoplay": payload.autoplay, "speed": payload.speed},
         )
-        await _schedule_generation(service, generation_id, voice, background_tasks, run_background_inline)
+        await _schedule_generation(service, generation_id, voice, payload.speed, background_tasks, run_background_inline)
         return {"generation_id": generation_id}
 
     @app.post("/api/generations/url")
@@ -79,9 +95,9 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             source_type="url",
             url=extracted.url,
             voice=voice,
-            settings={"autoplay": payload.autoplay},
+            settings={"autoplay": payload.autoplay, "speed": payload.speed},
         )
-        await _schedule_generation(service, generation_id, voice, background_tasks, run_background_inline)
+        await _schedule_generation(service, generation_id, voice, payload.speed, background_tasks, run_background_inline)
         return {"generation_id": generation_id}
 
     @app.get("/api/generations")
@@ -121,10 +137,15 @@ async def _schedule_generation(
     service: GenerationService,
     generation_id: int,
     voice: str,
+    speed: float,
     background_tasks: BackgroundTasks,
     run_background_inline: bool,
 ) -> None:
     if run_background_inline:
-        await service.run_generation(generation_id, voice)
+        await service.run_generation(generation_id, voice, speed)
         return
-    background_tasks.add_task(service.run_generation, generation_id, voice)
+    background_tasks.add_task(service.run_generation, generation_id, voice, speed)
+
+
+def _option_dicts(options: Iterable[SelectOption]) -> list[dict[str, str | float]]:
+    return [{"value": option.value, "label": option.label} for option in options]
