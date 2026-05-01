@@ -56,6 +56,16 @@ def _append_with_limit(segments: list[str], text: str, max_chars: int) -> None:
     words = text.split()
     current_words: list[str] = []
     for word in words:
+        if len(word) > max_chars:
+            if current_words:
+                segments.append(" ".join(current_words))
+                current_words = []
+            segments.extend(
+                word[index : index + max_chars]
+                for index in range(0, len(word), max_chars)
+            )
+            continue
+
         candidate = " ".join([*current_words, word])
         if current_words and len(candidate) > max_chars:
             segments.append(" ".join(current_words))

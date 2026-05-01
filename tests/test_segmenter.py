@@ -42,10 +42,28 @@ def test_segment_text_splits_oversized_sentence_before_short_sentence():
     assert " ".join(segments) == text
 
 
+def test_segment_text_splits_single_oversized_token():
+    text = "x" * 25
+
+    segments = segment_text(text, max_chars=20)
+
+    assert all(len(segment) <= 20 for segment in segments)
+    assert "".join(segments) == text
+
+
 def test_segment_text_rejects_empty_input():
     try:
         segment_text("   ", max_chars=20)
     except ValueError as exc:
         assert str(exc) == "text is empty"
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_segment_text_rejects_too_small_max_chars():
+    try:
+        segment_text("hello", max_chars=19)
+    except ValueError as exc:
+        assert str(exc) == "max_chars must be at least 20"
     else:
         raise AssertionError("expected ValueError")
