@@ -80,8 +80,9 @@ class GenerationService:
             extension = chunk.extension
 
         data = b"".join(data_parts)
-        relative_path = Path("audio") / str(generation_id) / f"segment-{segment_index + 1:04d}.{extension}"
-        absolute_path = self.audio_dir.parent / relative_path
+        filename = f"segment-{segment_index + 1:04d}.{extension}"
+        absolute_path = self.audio_dir / str(generation_id) / filename
+        relative_path = absolute_path.relative_to(self.audio_dir.parent)
         absolute_path.parent.mkdir(parents=True, exist_ok=True)
         absolute_path.write_bytes(data)
 
