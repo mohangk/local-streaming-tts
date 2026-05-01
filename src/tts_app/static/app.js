@@ -303,7 +303,7 @@ audioPlayer.addEventListener("pause", () => {
 
 audioPlayer.addEventListener("ended", () => {
   const nextIndex = state.currentSegmentIndex + 1;
-  if (state.currentDetail && nextIndex < state.currentDetail.text_segments.length) {
+  if (autoplayInput.checked && state.currentDetail && nextIndex < state.currentDetail.text_segments.length) {
     playSegment(nextIndex);
   }
 });

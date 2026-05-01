@@ -24,6 +24,14 @@ def test_frontend_javascript_uses_history_and_event_endpoints():
     assert "scrollIntoView" in js
 
 
+def test_frontend_javascript_ended_handler_respects_autoplay_toggle():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    handler = js.split('audioPlayer.addEventListener("ended"', 1)[1].split("loadHistory();", 1)[0]
+
+    assert "autoplayInput.checked" in handler
+    assert "playSegment(nextIndex)" in handler
+
+
 def test_frontend_css_is_mobile_first():
     css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
 
