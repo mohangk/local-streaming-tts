@@ -201,3 +201,16 @@ class Storage:
             "text_segments": [dict(row) for row in text_segments],
             "audio_segments": [dict(row) for row in audio_segments],
         }
+
+    def get_audio_segment(self, generation_id: int, audio_segment_id: int) -> dict[str, Any]:
+        with self.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM audio_segments
+                WHERE generation_id = ? AND id = ?
+                """,
+                (generation_id, audio_segment_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"audio segment {audio_segment_id} not found")
+        return dict(row)
