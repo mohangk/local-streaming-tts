@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from tts_app.config import Settings, load_settings
@@ -42,6 +43,8 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
         segment_max_chars=active_settings.segment_max_chars,
     )
     app = FastAPI(title="Local Streaming TTS")
+    static_dir = Path(__file__).parent / "static"
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
     app.state.settings = active_settings
     app.state.storage = storage
     app.state.broker = broker

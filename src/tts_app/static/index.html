@@ -4,10 +4,60 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Local TTS</title>
+    <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <main id="app">
-      <h1>Local TTS</h1>
+    <main class="app-shell">
+      <section id="generate-view" class="view active-view" aria-labelledby="generate-title">
+        <h1 id="generate-title">Local TTS</h1>
+        <div class="mode-tabs" role="tablist" aria-label="Input mode">
+          <button id="text-mode" class="mode-tab active" type="button">Text</button>
+          <button id="url-mode" class="mode-tab" type="button">URL</button>
+        </div>
+        <form id="generate-form" class="panel">
+          <label id="text-label" class="field-label" for="text-input">Text</label>
+          <textarea id="text-input" rows="9" aria-label="Text to read aloud"></textarea>
+          <label id="url-label" class="field-label hidden" for="url-input">URL</label>
+          <input id="url-input" class="hidden" type="url" aria-label="Page URL" />
+          <label class="toggle-row">
+            <input id="autoplay" type="checkbox" checked />
+            <span>Auto-play segments</span>
+          </label>
+          <button class="primary-action" type="submit">Generate</button>
+        </form>
+      </section>
+
+      <section id="history-view" class="view" aria-labelledby="history-title">
+        <h1 id="history-title">History</h1>
+        <input id="history-search" class="search-input" type="search" aria-label="Search history" />
+        <div id="history-list" class="history-list"></div>
+      </section>
+
+      <section id="playback-view" class="view playback-view" aria-labelledby="playback-title">
+        <header class="playback-header">
+          <button id="back-to-history" class="secondary-action" type="button">Back</button>
+          <h1 id="playback-title">Playback</h1>
+        </header>
+        <div class="player-bar">
+          <button id="play-pause" class="primary-action" type="button">Play</button>
+          <div>
+            <div id="player-status">No segment selected</div>
+            <label class="toggle-row compact">
+              <input id="scroll-follow" type="checkbox" checked />
+              <span>Follow text</span>
+            </label>
+          </div>
+        </div>
+        <article id="reading-pane" class="reading-pane"></article>
+      </section>
     </main>
+
+    <nav class="bottom-nav" aria-label="Primary">
+      <button data-view="generate-view" class="nav-button active" type="button">Generate</button>
+      <button data-view="history-view" class="nav-button" type="button">History</button>
+    </nav>
+
+    <audio id="audio-player"></audio>
+    <script src="/static/app.js" defer></script>
   </body>
 </html>
