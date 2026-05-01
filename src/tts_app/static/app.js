@@ -5,6 +5,7 @@ const state = {
   currentDetail: null,
   currentSegmentIndex: 0,
   eventSource: null,
+  autoplay: false,
 };
 
 const views = document.querySelectorAll(".view");
@@ -62,8 +63,9 @@ async function submitGeneration(event) {
   event.preventDefault();
   const isText = state.inputMode === "text";
   const endpoint = isText ? "/api/generations/text" : "/api/generations/url";
+  state.autoplay = autoplayInput.checked;
   const payload = {
-    autoplay: autoplayInput.checked,
+    autoplay: state.autoplay,
   };
 
   if (isText) {
@@ -77,29 +79,37 @@ async function submitGeneration(event) {
     return;
   }
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-  if (!response.ok) {
+    if (!response.ok) {
+      playerStatus.textContent = "Generation failed to start";
+      return;
+    }
+
+    const result = await response.json();
+    await openGeneration(result.generation_id, { subscribe: true, autoplay: state.autoplay });
+  } catch {
     playerStatus.textContent = "Generation failed to start";
-    return;
   }
-
-  const result = await response.json();
-  await openGeneration(result.generation_id, autoplayInput.checked);
 }
 
 async function loadHistory() {
-  const response = await fetch("/api/generations");
-  if (!response.ok) {
+  try {
+    const response = await fetch("/api/generations");
+    if (!response.ok) {
+      historyList.innerHTML = '<div class="history-item">Unable to load history</div>';
+      return;
+    }
+    state.generations = await response.json();
+    renderHistory();
+  } catch {
     historyList.innerHTML = '<div class="history-item">Unable to load history</div>';
-    return;
   }
-  state.generations = await response.json();
-  renderHistory();
 }
 
 function renderHistory() {
@@ -128,55 +138,113 @@ function renderHistory() {
     .join("");
 }
 
-async function openGeneration(generationId, shouldAutoplay = false) {
+async function openGeneration(generationId, options = {}) {
+  const settings = { subscribe: false, autoplay: false, ...options };
   state.currentGenerationId = generationId;
   state.currentSegmentIndex = 0;
+  state.autoplay = Boolean(settings.autoplay);
   showView("playback-view");
-  subscribeToGeneration(generationId);
+  if (settings.subscribe) {
+    subscribeToGeneration(generationId);
+  } else {
+    closeEventSource();
+  }
   await loadGenerationDetail(generationId);
-  if (shouldAutoplay) {
+  if (state.autoplay) {
     playSegment(0);
   }
 }
 
 async function loadGenerationDetail(generationId) {
-  const response = await fetch(`/api/generations/${generationId}`);
-  if (!response.ok) {
-    playerStatus.textContent = "Unable to load generation";
-    return;
+  try {
+    const response = await fetch(`/api/generations/${generationId}`);
+    if (!response.ok) {
+      resetPlaybackState("Unable to load generation");
+      return;
+    }
+    state.currentDetail = await response.json();
+    renderPlayback();
+  } catch {
+    resetPlaybackState("Unable to load generation");
   }
-  state.currentDetail = await response.json();
-  renderPlayback();
 }
 
-function subscribeToGeneration(generationId) {
+function closeEventSource() {
   if (state.eventSource) {
     state.eventSource.close();
+    state.eventSource = null;
+  }
+}
+
+function resetPlaybackState(message) {
+  closeEventSource();
+  audioPlayer.pause();
+  audioPlayer.removeAttribute("src");
+  state.currentGenerationId = null;
+  state.currentDetail = null;
+  state.currentSegmentIndex = 0;
+  state.autoplay = false;
+  readingPane.innerHTML = "";
+  playerStatus.textContent = message;
+  playPauseButton.textContent = "Play";
+}
+
+function handleEventSourceError() {
+  playerStatus.textContent = "Live updates disconnected";
+  if (state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
+  }
+}
+
+function handleEventMessage(message, generationId) {
+  let event;
+  try {
+    event = JSON.parse(message.data);
+  } catch {
+    playerStatus.textContent = "Unable to read live update";
+    return;
   }
 
-  state.eventSource = new EventSource(`/api/generations/${generationId}/events`);
-  state.eventSource.onmessage = async (message) => {
-    const event = JSON.parse(message.data);
-    if (event.type === "segment_completed" || event.type === "generation_completed") {
-      await loadGenerationDetail(generationId);
+  if (event.type === "segment_completed" || event.type === "generation_completed") {
+    loadGenerationDetail(generationId).then(() => {
       if (
-        autoplayInput.checked &&
+        state.autoplay &&
         audioPlayer.paused &&
         event.type === "segment_completed" &&
         event.segment_index === state.currentSegmentIndex
       ) {
         playSegment(event.segment_index);
       }
-    }
-    if (event.type === "generation_failed") {
-      playerStatus.textContent = event.error || "Generation failed";
-    }
+    });
+  }
+  if (event.type === "generation_failed") {
+    playerStatus.textContent = event.error || "Generation failed";
+  }
+}
+
+function subscribeToGeneration(generationId) {
+  closeEventSource();
+
+  try {
+    state.eventSource = new EventSource(`/api/generations/${generationId}/events`);
+  } catch {
+    playerStatus.textContent = "Live updates unavailable";
+    return;
+  }
+
+  state.eventSource.onmessage = (message) => {
+    handleEventMessage(message, generationId);
+  };
+  state.eventSource.onerror = () => {
+    handleEventSourceError();
   };
 }
 
 function renderPlayback() {
   const detail = state.currentDetail;
   if (!detail) {
+    playerStatus.textContent = "Unable to load generation";
     return;
   }
 
@@ -267,7 +335,7 @@ backToHistory.addEventListener("click", () => showView("history-view"));
 historyList.addEventListener("click", (event) => {
   const item = event.target.closest("[data-generation-id]");
   if (item) {
-    openGeneration(Number(item.dataset.generationId));
+    openGeneration(Number(item.dataset.generationId), { subscribe: false, autoplay: false });
   }
 });
 
@@ -303,7 +371,7 @@ audioPlayer.addEventListener("pause", () => {
 
 audioPlayer.addEventListener("ended", () => {
   const nextIndex = state.currentSegmentIndex + 1;
-  if (autoplayInput.checked && state.currentDetail && nextIndex < state.currentDetail.text_segments.length) {
+  if (state.autoplay && state.currentDetail && nextIndex < state.currentDetail.text_segments.length) {
     playSegment(nextIndex);
   }
 });
