@@ -41,3 +41,15 @@ QWEN_VOICE=Cherry
 ```bash
 pytest
 ```
+
+## Verification Checklist
+
+1. Run `pytest`.
+2. Run `TTS_PROVIDER=fake uvicorn tts_app.api:create_app --factory --host 0.0.0.0 --port 8000`.
+3. Open `http://127.0.0.1:8000`.
+4. Paste text with multiple sentences and generate audio.
+5. Confirm segments appear in Playback.
+6. Tap a text segment and confirm playback jumps to that segment.
+7. Open History and confirm the generation is listed.
+8. Reopen the item from History and confirm cached segments are still available.
+9. Try a basic HTML URL and confirm extracted text appears in Playback.
