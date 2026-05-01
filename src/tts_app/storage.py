@@ -51,12 +51,13 @@ class Storage:
                 CREATE TABLE IF NOT EXISTS text_segments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     generation_id INTEGER NOT NULL REFERENCES generations(id) ON DELETE CASCADE,
-                    segment_index INTEGER NOT NULL,
+                    segment_index INTEGER NOT NULL CHECK (segment_index >= 0),
                     text TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed')),
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(generation_id, id),
+                    UNIQUE(generation_id, id, segment_index),
                     UNIQUE(generation_id, segment_index)
                 );
 
@@ -64,16 +65,16 @@ class Storage:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     generation_id INTEGER NOT NULL REFERENCES generations(id) ON DELETE CASCADE,
                     text_segment_id INTEGER NOT NULL,
-                    segment_index INTEGER NOT NULL,
+                    segment_index INTEGER NOT NULL CHECK (segment_index >= 0),
                     file_path TEXT NOT NULL,
                     mime_type TEXT NOT NULL,
-                    duration_ms INTEGER,
-                    byte_size INTEGER NOT NULL,
+                    duration_ms INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),
+                    byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
                     status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
                     error TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (generation_id, text_segment_id) REFERENCES text_segments(generation_id, id) ON DELETE CASCADE,
+                    FOREIGN KEY (generation_id, text_segment_id, segment_index) REFERENCES text_segments(generation_id, id, segment_index) ON DELETE CASCADE,
                     UNIQUE(generation_id, segment_index)
                 );
                 """

@@ -144,6 +144,102 @@ def test_cross_generation_audio_segment_insertion_is_rejected(test_settings):
         )
 
 
+def test_audio_segment_index_must_match_text_segment_index(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A B", "fake", "Test", {})
+    first_text_segment_id = storage.create_text_segments(generation_id, ["A", "B"])[0]
+
+    with pytest.raises(sqlite3.IntegrityError):
+        storage.record_audio_segment(
+            generation_id=generation_id,
+            text_segment_id=first_text_segment_id,
+            segment_index=1,
+            file_path="data/audio/abc/segment-0002.mp3",
+            mime_type="audio/mpeg",
+            duration_ms=None,
+            byte_size=12,
+            status="completed",
+            error=None,
+        )
+
+
+def test_negative_text_segment_index_is_rejected(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+
+    with pytest.raises(sqlite3.IntegrityError):
+        with storage.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO text_segments (generation_id, segment_index, text, status)
+                VALUES (?, -1, ?, 'queued')
+                """,
+                (generation_id, "A"),
+            )
+
+
+def test_negative_audio_segment_index_is_rejected(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+    text_segment_id = storage.create_text_segments(generation_id, ["A"])[0]
+
+    with pytest.raises(sqlite3.IntegrityError):
+        storage.record_audio_segment(
+            generation_id=generation_id,
+            text_segment_id=text_segment_id,
+            segment_index=-1,
+            file_path="data/audio/abc/segment-0001.mp3",
+            mime_type="audio/mpeg",
+            duration_ms=None,
+            byte_size=12,
+            status="completed",
+            error=None,
+        )
+
+
+def test_negative_audio_duration_is_rejected(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+    text_segment_id = storage.create_text_segments(generation_id, ["A"])[0]
+
+    with pytest.raises(sqlite3.IntegrityError):
+        storage.record_audio_segment(
+            generation_id=generation_id,
+            text_segment_id=text_segment_id,
+            segment_index=0,
+            file_path="data/audio/abc/segment-0001.mp3",
+            mime_type="audio/mpeg",
+            duration_ms=-1,
+            byte_size=12,
+            status="completed",
+            error=None,
+        )
+
+
+def test_negative_audio_byte_size_is_rejected(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+    text_segment_id = storage.create_text_segments(generation_id, ["A"])[0]
+
+    with pytest.raises(sqlite3.IntegrityError):
+        storage.record_audio_segment(
+            generation_id=generation_id,
+            text_segment_id=text_segment_id,
+            segment_index=0,
+            file_path="data/audio/abc/segment-0001.mp3",
+            mime_type="audio/mpeg",
+            duration_ms=None,
+            byte_size=-1,
+            status="completed",
+            error=None,
+        )
+
+
 def test_updating_missing_generation_raises_key_error(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
