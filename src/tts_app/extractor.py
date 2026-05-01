@@ -6,6 +6,9 @@ import httpx
 from bs4 import BeautifulSoup
 
 
+MIN_READABLE_TEXT_LENGTH = 20
+
+
 class ExtractionError(ValueError):
     pass
 
@@ -18,14 +21,21 @@ class ExtractedText:
 
 
 async def fetch_and_extract(url: str, client: httpx.AsyncClient | None = None) -> ExtractedText:
-    if not url.startswith(("http://", "https://")):
+    try:
+        parsed_url = httpx.URL(url)
+    except httpx.InvalidURL as exc:
+        raise ExtractionError("invalid URL") from exc
+
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.host:
         raise ExtractionError("invalid URL")
 
     owns_client = client is None
     active_client = client or httpx.AsyncClient(timeout=15.0, follow_redirects=True)
     try:
-        response = await active_client.get(url)
+        response = await active_client.get(parsed_url)
         response.raise_for_status()
+    except httpx.InvalidURL as exc:
+        raise ExtractionError("invalid URL") from exc
     except httpx.HTTPError as exc:
         raise ExtractionError("page could not be reached") from exc
     finally:
@@ -41,6 +51,9 @@ async def fetch_and_extract(url: str, client: httpx.AsyncClient | None = None) -
 
 def extract_readable_text(html: str, url: str) -> ExtractedText:
     soup = BeautifulSoup(html, "html.parser")
+    if _looks_like_browser_rendered_app_shell(soup):
+        raise ExtractionError("browser-rendered pages are not supported yet")
+
     for tag in soup(["script", "style", "noscript", "svg", "canvas", "form", "header", "footer", "nav", "aside"]):
         tag.decompose()
 
@@ -66,7 +79,7 @@ def extract_readable_text(html: str, url: str) -> ExtractedText:
             unique_chunks.append(chunk)
 
     text = "\n\n".join(unique_chunks).strip()
-    if len(text) < 20:
+    if len(text) < MIN_READABLE_TEXT_LENGTH:
         raise ExtractionError("no readable text found")
 
     return ExtractedText(title=title, text=text, url=url)
@@ -81,3 +94,19 @@ def _pick_title(soup: BeautifulSoup, container) -> str:
     if soup.title and soup.title.string:
         return " ".join(soup.title.string.split())
     return "Untitled page"
+
+
+def _looks_like_browser_rendered_app_shell(soup: BeautifulSoup) -> bool:
+    body = soup.body
+    if body is None or not body.find("script"):
+        return False
+
+    non_script_text = " ".join(
+        text.strip()
+        for text in body.find_all(string=True)
+        if text.parent and text.parent.name not in {"script", "style", "noscript"} and text.strip()
+    )
+    if len(non_script_text) >= MIN_READABLE_TEXT_LENGTH:
+        return False
+
+    return bool(body.find(id="app") or body.find(id="root"))

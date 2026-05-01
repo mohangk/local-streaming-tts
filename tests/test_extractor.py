@@ -38,12 +38,42 @@ async def test_fetch_and_extract_rejects_non_html():
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, headers={"content-type": "application/json"}, json={"ok": True})
 
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(ExtractionError, match="unsupported content type"):
+            await fetch_and_extract("https://example.test/data", client=client)
 
-    with pytest.raises(ExtractionError, match="unsupported content type"):
-        await fetch_and_extract("https://example.test/data", client=client)
 
-    await client.aclose()
+@pytest.mark.asyncio
+async def test_fetch_and_extract_rejects_malformed_http_url():
+    with pytest.raises(ExtractionError, match="invalid URL"):
+        await fetch_and_extract("https://[::1")
+
+
+@pytest.mark.asyncio
+async def test_fetch_and_extract_wraps_network_failures():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection failed", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(ExtractionError, match="page could not be reached"):
+            await fetch_and_extract("https://example.test/post", client=client)
+
+
+@pytest.mark.asyncio
+async def test_fetch_and_extract_wraps_http_status_failures():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(ExtractionError, match="page could not be reached"):
+            await fetch_and_extract("https://example.test/post", client=client)
+
+
+def test_extract_readable_text_rejects_browser_rendered_app_shells():
+    html = '<html><body><div id="app"></div><script>app()</script></body></html>'
+
+    with pytest.raises(ExtractionError, match="browser-rendered pages are not supported yet"):
+        extract_readable_text(html, "https://example.test/app")
 
 
 @pytest.mark.asyncio
@@ -55,10 +85,8 @@ async def test_fetch_and_extract_returns_extracted_result():
             text="<html><body><article><h1>Hello</h1><p>Readable text.</p></article></body></html>",
         )
 
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-
-    result = await fetch_and_extract("https://example.test/post", client=client)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await fetch_and_extract("https://example.test/post", client=client)
 
     assert result.title == "Hello"
     assert result.text == "Hello\n\nReadable text."
-    await client.aclose()
