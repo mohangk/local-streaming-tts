@@ -33,6 +33,7 @@ async def test_qwen_provider_sends_realtime_events_and_yields_audio():
             {"type": "response.audio.delta", "delta": base64.b64encode(b"abc").decode("ascii")},
             {"type": "response.audio.delta", "delta": base64.b64encode(b"def").decode("ascii")},
             {"type": "response.done"},
+            {"type": "response.audio.delta", "delta": base64.b64encode(b"ignored").decode("ascii")},
         ]
     )
     captured = {}
@@ -48,11 +49,13 @@ async def test_qwen_provider_sends_realtime_events_and_yields_audio():
         realtime_url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime",
         connect=connect,
     )
+    options = TTSOptions(voice="Cherry", audio_format="mp3", language="Chinese", sample_rate=16000)
 
-    chunks = [chunk async for chunk in provider.stream_speech("hello", TTSOptions(voice="Cherry"))]
+    chunks = [chunk async for chunk in provider.stream_speech("hello", options)]
 
     assert [chunk.data for chunk in chunks] == [b"abc", b"def"]
     assert all(chunk.mime_type == "audio/mpeg" for chunk in chunks)
+    assert all(chunk.extension == "mp3" for chunk in chunks)
     assert captured["url"] == "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model=qwen3-tts-flash-realtime"
     assert captured["headers"] == {"Authorization": "Bearer key"}
     assert [event["type"] for event in websocket.sent_events] == [
@@ -63,7 +66,11 @@ async def test_qwen_provider_sends_realtime_events_and_yields_audio():
     ]
     assert websocket.sent_events[0]["session"]["voice"] == "Cherry"
     assert websocket.sent_events[0]["session"]["mode"] == "commit"
+    assert websocket.sent_events[0]["session"]["language_type"] == "Chinese"
+    assert websocket.sent_events[0]["session"]["response_format"] == "mp3"
+    assert websocket.sent_events[0]["session"]["sample_rate"] == 16000
     assert websocket.sent_events[1]["text"] == "hello"
+    assert websocket.closed is True
 
 
 @pytest.mark.asyncio
@@ -83,6 +90,7 @@ async def test_qwen_provider_turns_server_error_into_provider_error():
     with pytest.raises(ProviderError, match="bad voice"):
         async for _ in provider.stream_speech("hello", TTSOptions(voice="Missing")):
             pass
+    assert websocket.closed is True
 
 
 class FakeWebSocket:
