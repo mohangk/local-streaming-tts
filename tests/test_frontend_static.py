@@ -56,6 +56,21 @@ def test_frontend_fetch_paths_have_error_handling():
     assert "resetPlaybackState(" in js
 
 
+def test_frontend_generation_detail_loads_ignore_stale_results():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    detail_loader = js.split("async function loadGenerationDetail(generationId)", 1)[1].split(
+        "function closeEventSource()", 1
+    )[0]
+    event_handler = js.split("function handleEventMessage(message, generationId)", 1)[1].split(
+        "function subscribeToGeneration(generationId)", 1
+    )[0]
+
+    assert "state.currentGenerationId !== generationId" in detail_loader
+    assert "return null" in detail_loader
+    assert "return state.currentGenerationId === generationId" in detail_loader
+    assert "loaded &&" in event_handler
+
+
 def test_frontend_css_is_mobile_first():
     css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
 

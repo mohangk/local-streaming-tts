@@ -149,8 +149,8 @@ async function openGeneration(generationId, options = {}) {
   } else {
     closeEventSource();
   }
-  await loadGenerationDetail(generationId);
-  if (state.autoplay) {
+  const loaded = await loadGenerationDetail(generationId);
+  if (loaded && state.autoplay) {
     playSegment(0);
   }
 }
@@ -159,13 +159,23 @@ async function loadGenerationDetail(generationId) {
   try {
     const response = await fetch(`/api/generations/${generationId}`);
     if (!response.ok) {
-      resetPlaybackState("Unable to load generation");
-      return;
+      if (state.currentGenerationId === generationId) {
+        resetPlaybackState("Unable to load generation");
+      }
+      return null;
     }
-    state.currentDetail = await response.json();
+    const detail = await response.json();
+    if (state.currentGenerationId !== generationId) {
+      return null;
+    }
+    state.currentDetail = detail;
     renderPlayback();
+    return state.currentGenerationId === generationId;
   } catch {
-    resetPlaybackState("Unable to load generation");
+    if (state.currentGenerationId === generationId) {
+      resetPlaybackState("Unable to load generation");
+    }
+    return null;
   }
 }
 
@@ -207,8 +217,10 @@ function handleEventMessage(message, generationId) {
   }
 
   if (event.type === "segment_completed" || event.type === "generation_completed") {
-    loadGenerationDetail(generationId).then(() => {
+    loadGenerationDetail(generationId).then((loaded) => {
       if (
+        loaded &&
+        state.currentGenerationId === generationId &&
         state.autoplay &&
         audioPlayer.paused &&
         event.type === "segment_completed" &&
