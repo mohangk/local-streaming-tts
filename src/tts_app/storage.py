@@ -44,6 +44,8 @@ class Storage:
                     settings_json TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed')),
                     error TEXT,
+                    last_segment_index INTEGER NOT NULL DEFAULT 0 CHECK (last_segment_index >= 0),
+                    progress_percent INTEGER NOT NULL DEFAULT 0 CHECK (progress_percent >= 0 AND progress_percent <= 100),
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -79,6 +81,14 @@ class Storage:
                 );
                 """
             )
+            self._ensure_generation_progress_columns(conn)
+
+    def _ensure_generation_progress_columns(self, conn: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(generations)").fetchall()}
+        if "last_segment_index" not in columns:
+            conn.execute("ALTER TABLE generations ADD COLUMN last_segment_index INTEGER NOT NULL DEFAULT 0")
+        if "progress_percent" not in columns:
+            conn.execute("ALTER TABLE generations ADD COLUMN progress_percent INTEGER NOT NULL DEFAULT 0")
 
     def create_generation(
         self,
@@ -128,6 +138,35 @@ class Storage:
             if cur.rowcount == 0:
                 raise KeyError(f"generation {generation_id} not found")
 
+    def update_generation_progress(self, generation_id: int, segment_index: int, completed: bool = False) -> dict[str, int]:
+        with self.connection() as conn:
+            total_segments = conn.execute(
+                "SELECT COUNT(*) FROM text_segments WHERE generation_id = ?",
+                (generation_id,),
+            ).fetchone()[0]
+            generation = conn.execute("SELECT id FROM generations WHERE id = ?", (generation_id,)).fetchone()
+            if generation is None:
+                raise KeyError(f"generation {generation_id} not found")
+
+            if total_segments <= 0:
+                last_segment_index = 0
+                progress_percent = 0
+            else:
+                last_segment_index = min(max(int(segment_index), 0), total_segments - 1)
+                progress_percent = 100 if completed else round(((last_segment_index + 1) / total_segments) * 100)
+                progress_percent = min(max(progress_percent, 0), 100)
+
+            conn.execute(
+                """
+                UPDATE generations
+                SET last_segment_index = ?, progress_percent = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (last_segment_index, progress_percent, generation_id),
+            )
+
+        return {"last_segment_index": last_segment_index, "progress_percent": progress_percent}
+
     def update_text_segment_status(self, text_segment_id: int, status: Status) -> None:
         with self.connection() as conn:
             cur = conn.execute(
@@ -169,12 +208,18 @@ class Storage:
             rows = conn.execute(
                 """
                 SELECT id, source_type, title, url, substr(full_text, 1, 180) AS text_preview,
-                       provider, voice, status, error, created_at, updated_at
+                       provider, voice, settings_json, status, error, last_segment_index,
+                       progress_percent, created_at, updated_at
                 FROM generations
                 ORDER BY datetime(created_at) DESC, id DESC
                 """
             ).fetchall()
-        return [dict(row) for row in rows]
+        generations = []
+        for row in rows:
+            generation = dict(row)
+            generation["settings"] = json.loads(generation.pop("settings_json"))
+            generations.append(generation)
+        return generations
 
     def get_generation(self, generation_id: int) -> dict[str, Any]:
         with self.connection() as conn:
@@ -201,6 +246,12 @@ class Storage:
             "text_segments": [dict(row) for row in text_segments],
             "audio_segments": [dict(row) for row in audio_segments],
         }
+
+    def delete_generation(self, generation_id: int) -> None:
+        with self.connection() as conn:
+            cur = conn.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
+            if cur.rowcount == 0:
+                raise KeyError(f"generation {generation_id} not found")
 
     def get_audio_segment(self, generation_id: int, audio_segment_id: int) -> dict[str, Any]:
         with self.connection() as conn:

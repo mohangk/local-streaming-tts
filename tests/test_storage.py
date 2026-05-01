@@ -64,6 +64,63 @@ def test_audio_segment_round_trip(test_settings):
     assert detail["audio_segments"][0]["status"] == "completed"
 
 
+def test_generation_progress_round_trip(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation(
+        source_type="text",
+        title="Manual text",
+        url=None,
+        full_text="One. Two. Three. Four.",
+        provider="fake",
+        voice="Test",
+        settings={},
+    )
+    storage.create_text_segments(generation_id, ["One.", "Two.", "Three.", "Four."])
+
+    storage.update_generation_progress(generation_id, segment_index=1)
+
+    detail = storage.get_generation(generation_id)
+
+    assert detail["generation"]["last_segment_index"] == 1
+    assert detail["generation"]["progress_percent"] == 50
+
+
+def test_generation_progress_completed_sets_100_percent(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "One. Two.", "fake", "Test", {})
+    storage.create_text_segments(generation_id, ["One.", "Two."])
+
+    storage.update_generation_progress(generation_id, segment_index=1, completed=True)
+
+    assert storage.get_generation(generation_id)["generation"]["progress_percent"] == 100
+
+
+def test_delete_generation_cascades_segments(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "Hello.", "fake", "Test", {})
+    text_segment_id = storage.create_text_segments(generation_id, ["Hello."])[0]
+    storage.record_audio_segment(
+        generation_id=generation_id,
+        text_segment_id=text_segment_id,
+        segment_index=0,
+        file_path="data/audio/abc/segment-0001.mp3",
+        mime_type="audio/mpeg",
+        duration_ms=None,
+        byte_size=12,
+        status="completed",
+        error=None,
+    )
+
+    storage.delete_generation(generation_id)
+
+    assert storage.list_generations() == []
+    with pytest.raises(KeyError, match=f"generation {generation_id} not found"):
+        storage.get_generation(generation_id)
+
+
 def test_list_generations_orders_newest_first(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
@@ -74,6 +131,67 @@ def test_list_generations_orders_newest_first(test_settings):
     rows = storage.list_generations()
 
     assert [row["id"] for row in rows] == [second, first]
+
+
+def test_list_generations_includes_settings_and_progress(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation(
+        "url",
+        "Page",
+        "https://example.test/page",
+        "Text",
+        "fake",
+        "Jennifer",
+        {"speed": 1.25},
+    )
+    storage.create_text_segments(generation_id, ["Text"])
+    storage.update_generation_progress(generation_id, segment_index=0)
+
+    row = storage.list_generations()[0]
+
+    assert row["url"] == "https://example.test/page"
+    assert row["voice"] == "Jennifer"
+    assert row["settings"]["speed"] == 1.25
+    assert row["progress_percent"] == 100
+
+
+def test_init_schema_migrates_existing_generation_progress_columns(test_settings):
+    test_settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(test_settings.db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE generations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                url TEXT,
+                full_text TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                voice TEXT NOT NULL,
+                settings_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                error TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    Storage(test_settings.db_path).init_schema()
+
+    conn = sqlite3.connect(test_settings.db_path)
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(generations)").fetchall()}
+    finally:
+        conn.close()
+
+    assert "last_segment_index" in columns
+    assert "progress_percent" in columns
 
 
 def test_invalid_source_type_is_rejected_by_sqlite(test_settings):

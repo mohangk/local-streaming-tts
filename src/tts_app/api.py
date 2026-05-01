@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Iterable
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -31,6 +32,11 @@ class UrlGenerationRequest(BaseModel):
     voice: str | None = None
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     autoplay: bool = True
+
+
+class ProgressRequest(BaseModel):
+    segment_index: int = Field(ge=0)
+    completed: bool = False
 
 
 def create_app(settings: Settings | None = None, run_background_inline: bool = False) -> FastAPI:
@@ -110,6 +116,23 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             return storage.get_generation(generation_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="generation not found") from exc
+
+    @app.put("/api/generations/{generation_id}/progress")
+    async def update_progress(generation_id: int, payload: ProgressRequest):
+        try:
+            return storage.update_generation_progress(generation_id, payload.segment_index, payload.completed)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="generation not found") from exc
+
+    @app.delete("/api/generations/{generation_id}", status_code=204)
+    async def delete_generation(generation_id: int):
+        try:
+            storage.get_generation(generation_id)
+            storage.delete_generation(generation_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="generation not found") from exc
+        shutil.rmtree(active_settings.audio_dir / str(generation_id), ignore_errors=True)
+        return Response(status_code=204)
 
     @app.get("/api/audio/{generation_id}/{audio_segment_id}")
     async def get_audio(generation_id: int, audio_segment_id: int):

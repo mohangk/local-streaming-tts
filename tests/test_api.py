@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -305,6 +306,63 @@ def test_audio_endpoint_serves_cached_segment(test_settings):
     assert audio.status_code == 200
     assert audio.headers["content-type"].startswith("audio/")
     assert b"FAKE-TTS" in audio.content
+
+
+def test_delete_generation_removes_history_and_audio_files(test_settings):
+    app = create_app(settings=test_settings, run_background_inline=True)
+    client = TestClient(app)
+    generation_id = client.post("/api/generations/text", json={"text": "Hello world.", "title": "Note"}).json()[
+        "generation_id"
+    ]
+    detail = client.get(f"/api/generations/{generation_id}").json()
+    audio_path = test_settings.data_dir / detail["audio_segments"][0]["file_path"]
+    assert audio_path.exists()
+
+    response = client.delete(f"/api/generations/{generation_id}")
+
+    assert response.status_code == 204
+    assert client.get(f"/api/generations/{generation_id}").status_code == 404
+    assert all(item["id"] != generation_id for item in client.get("/api/generations").json())
+    assert not audio_path.exists()
+
+
+def test_delete_missing_generation_returns_404(test_settings):
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    response = client.delete("/api/generations/999")
+
+    assert response.status_code == 404
+
+
+def test_update_progress_persists_segment_percentage(test_settings):
+    app = create_app(settings=replace(test_settings, segment_max_chars=20))
+    client = TestClient(app)
+    generation_id = client.post(
+        "/api/generations/text",
+        json={"text": "Alpha beta gamma. Delta epsilon zeta. Eta theta iota. Kappa lambda mu.", "title": "Note"},
+    ).json()["generation_id"]
+
+    response = client.put(f"/api/generations/{generation_id}/progress", json={"segment_index": 1})
+
+    assert response.status_code == 200
+    assert response.json()["progress_percent"] == 50
+    detail = client.get(f"/api/generations/{generation_id}").json()
+    assert detail["generation"]["last_segment_index"] == 1
+    assert detail["generation"]["progress_percent"] == 50
+
+
+def test_update_progress_completed_sets_100_percent(test_settings):
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+    generation_id = client.post("/api/generations/text", json={"text": "One. Two.", "title": "Note"}).json()[
+        "generation_id"
+    ]
+
+    response = client.put(f"/api/generations/{generation_id}/progress", json={"segment_index": 1, "completed": True})
+
+    assert response.status_code == 200
+    assert response.json()["progress_percent"] == 100
 
 
 async def test_generation_events_replays_existing_events(test_settings):
