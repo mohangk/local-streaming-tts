@@ -1,0 +1,43 @@
+# Local Streaming TTS
+
+Local, mobile-first web app for generating streamed text-to-speech audio from pasted text or basic HTML page URLs.
+
+## Setup
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+## Run
+
+```bash
+uvicorn tts_app.api:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+Open `http://127.0.0.1:8000` locally, or use the machine's Tailscale address when exposing it to your own devices.
+
+## Development Provider
+
+The default provider is `fake`, which writes deterministic small audio-like files and does not call an external API.
+
+```bash
+TTS_PROVIDER=fake uvicorn tts_app.api:create_app --factory --reload
+```
+
+## Qwen Provider Configuration
+
+```bash
+TTS_PROVIDER=qwen
+DASHSCOPE_API_KEY=...
+QWEN_MODEL=qwen3-tts-flash-realtime
+QWEN_REALTIME_URL=wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime
+QWEN_VOICE=Cherry
+```
+
+## Tests
+
+```bash
+pytest
+```
