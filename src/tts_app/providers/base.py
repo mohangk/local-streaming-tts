@@ -29,5 +29,5 @@ class AudioChunk:
 class TTSProvider(Protocol):
     name: str
 
-    async def stream_speech(self, text: str, options: TTSOptions) -> AsyncIterator[AudioChunk]:
+    def stream_speech(self, text: str, options: TTSOptions) -> AsyncIterator[AudioChunk]:
         ...

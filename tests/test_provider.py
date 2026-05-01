@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from tts_app.providers.base import TTSOptions
 from tts_app.providers.fake import FakeTTSProvider
+from tts_app.providers.qwen import QwenTTSProvider
 from tts_app.providers.registry import get_provider
 
 
@@ -37,3 +40,21 @@ def test_registry_returns_fake_provider(test_settings):
     provider = get_provider(test_settings)
 
     assert provider.name == "fake"
+
+
+def test_registry_returns_qwen_provider(test_settings):
+    settings = replace(test_settings, provider_name="qwen", qwen_api_key="key")
+
+    provider = get_provider(settings)
+
+    assert isinstance(provider, QwenTTSProvider)
+    assert provider.api_key == "key"
+    assert provider.model == settings.qwen_model
+    assert provider.realtime_url == settings.qwen_realtime_url
+
+
+def test_registry_rejects_unknown_provider(test_settings):
+    settings = replace(test_settings, provider_name="unknown")
+
+    with pytest.raises(ValueError, match="unknown TTS provider: unknown"):
+        get_provider(settings)
