@@ -45,7 +45,7 @@ def _append_with_limit(segments: list[str], text: str, max_chars: int) -> None:
         for sentence in sentence_parts:
             candidate = f"{current} {sentence}".strip()
             if current and len(candidate) > max_chars:
-                segments.append(current)
+                _append_with_limit(segments, current, max_chars)
                 current = sentence
             else:
                 current = candidate

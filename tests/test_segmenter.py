@@ -33,6 +33,15 @@ def test_segment_text_splits_long_sentence_on_words():
     assert " ".join(segments) == text
 
 
+def test_segment_text_splits_oversized_sentence_before_short_sentence():
+    text = "alpha beta gamma delta epsilon zeta eta theta. short."
+
+    segments = segment_text(text, max_chars=20)
+
+    assert all(len(segment) <= 20 for segment in segments)
+    assert " ".join(segments) == text
+
+
 def test_segment_text_rejects_empty_input():
     try:
         segment_text("   ", max_chars=20)
