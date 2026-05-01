@@ -25,6 +25,7 @@ def test_frontend_javascript_uses_history_and_event_endpoints():
     assert "/api/generations/text" in js
     assert "/api/generations/url" in js
     assert "/api/options" in js
+    assert "/progress" in js
     assert "payload.voice" in js
     assert "payload.speed" in js
     assert "EventSource" in js
@@ -43,7 +44,36 @@ def test_frontend_history_open_disables_subscription_and_autoplay():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     handler = js.split('historyList.addEventListener("click"', 1)[1].split('readingPane.addEventListener("click"', 1)[0]
 
-    assert "openGeneration(Number(item.dataset.generationId), { subscribe: false, autoplay: false })" in handler
+    assert 'action.dataset.action === "open"' in handler
+    assert "openGeneration(generationId, { subscribe: false, autoplay: false })" in handler
+
+
+def test_frontend_history_renders_url_metadata_and_delete_controls():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    renderer = js.split("function renderHistory()", 1)[1].split("async function openGeneration", 1)[0]
+
+    assert "item.url" in renderer
+    assert "<details" in renderer
+    assert "Voice" in renderer
+    assert "Speed" in renderer
+    assert "Progress" in renderer
+    assert "data-action=\"delete\"" in renderer
+
+
+def test_frontend_history_delete_calls_delete_endpoint():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "async function deleteGeneration" in js
+    assert "method: \"DELETE\"" in js
+    assert "loadHistory()" in js
+
+
+def test_frontend_playback_updates_progress():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "async function saveProgress" in js
+    assert "saveProgress(segmentIndex)" in js
+    assert "completed: true" in js
 
 
 def test_frontend_event_source_handles_errors():

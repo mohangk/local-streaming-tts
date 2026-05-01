@@ -67,6 +67,11 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function formatSpeed(value) {
+  const speed = Number(value || 1);
+  return `${Number.isInteger(speed) ? speed.toFixed(0) : speed}x`;
+}
+
 async function submitGeneration(event) {
   event.preventDefault();
   const isText = state.inputMode === "text";
@@ -154,7 +159,7 @@ async function loadHistory() {
 function renderHistory() {
   const query = historySearch.value.trim().toLowerCase();
   const rows = state.generations.filter((item) => {
-    const text = `${item.title} ${item.text_preview} ${item.url ?? ""}`.toLowerCase();
+    const text = `${item.title} ${item.text_preview} ${item.url ?? ""} ${item.voice} ${item.settings?.speed ?? ""}`.toLowerCase();
     return text.includes(query);
   });
 
@@ -166,15 +171,53 @@ function renderHistory() {
   historyList.innerHTML = rows
     .map((item) => {
       const created = item.created_at ? new Date(`${item.created_at}Z`).toLocaleString() : "";
+      const speed = item.settings?.speed ?? 1;
+      const progress = Number(item.progress_percent || 0);
+      const urlMarkup = item.url
+        ? `<div class="history-item-url">${escapeHtml(item.url)}</div>`
+        : "";
       return `
-        <button class="history-item" type="button" data-generation-id="${item.id}">
+        <article class="history-item" data-generation-id="${item.id}">
           <div class="history-item-title">${escapeHtml(item.title)}</div>
           <div class="history-item-meta">${escapeHtml(item.status)} ${escapeHtml(created)}</div>
+          ${urlMarkup}
           <div class="history-item-preview">${escapeHtml(item.text_preview)}</div>
-        </button>
+          <details class="history-details">
+            <summary>Details</summary>
+            <dl>
+              <div><dt>Voice</dt><dd>${escapeHtml(item.voice)}</dd></div>
+              <div><dt>Speed</dt><dd>${escapeHtml(formatSpeed(speed))}</dd></div>
+              <div><dt>Provider</dt><dd>${escapeHtml(item.provider)}</dd></div>
+              <div><dt>Progress</dt><dd>${escapeHtml(progress)}%</dd></div>
+            </dl>
+          </details>
+          <div class="history-actions">
+            <button class="secondary-action compact-action" type="button" data-action="open" data-generation-id="${item.id}">Open</button>
+            <button class="danger-action compact-action" type="button" data-action="delete" data-generation-id="${item.id}">Delete</button>
+          </div>
+        </article>
       `;
     })
     .join("");
+}
+
+async function deleteGeneration(generationId) {
+  if (!window.confirm("Delete this history entry and cached audio?")) {
+    return;
+  }
+  try {
+    const response = await fetch(`/api/generations/${generationId}`, { method: "DELETE" });
+    if (!response.ok) {
+      playerStatus.textContent = "Unable to delete history entry";
+      return;
+    }
+    if (state.currentGenerationId === generationId) {
+      resetPlaybackState("Deleted generation");
+    }
+    await loadHistory();
+  } catch {
+    playerStatus.textContent = "Unable to delete history entry";
+  }
 }
 
 async function openGeneration(generationId, options = {}) {
@@ -208,6 +251,10 @@ async function loadGenerationDetail(generationId) {
       return null;
     }
     state.currentDetail = detail;
+    if (detail.text_segments.length > 0) {
+      const savedIndex = Number(detail.generation.last_segment_index || 0);
+      state.currentSegmentIndex = Math.min(Math.max(savedIndex, 0), detail.text_segments.length - 1);
+    }
     renderPlayback();
     return state.currentGenerationId === generationId;
   } catch {
@@ -342,9 +389,30 @@ function playSegment(segmentIndex) {
   }
 
   audioPlayer.src = `/api/audio/${state.currentGenerationId}/${audio.id}`;
+  saveProgress(segmentIndex);
   audioPlayer.play().catch(() => {
     playerStatus.textContent = "Tap Play to start audio";
   });
+}
+
+async function saveProgress(segmentIndex, options = {}) {
+  if (!state.currentGenerationId) {
+    return;
+  }
+  try {
+    const response = await fetch(`/api/generations/${state.currentGenerationId}/progress`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segment_index: segmentIndex, completed: Boolean(options.completed) }),
+    });
+    if (response.ok && state.currentDetail) {
+      const progress = await response.json();
+      state.currentDetail.generation.last_segment_index = progress.last_segment_index;
+      state.currentDetail.generation.progress_percent = progress.progress_percent;
+    }
+  } catch {
+    // Playback should continue even if progress cannot be saved.
+  }
 }
 
 function updateActiveSegment() {
@@ -384,9 +452,17 @@ historySearch.addEventListener("input", renderHistory);
 backToHistory.addEventListener("click", () => showView("history-view"));
 
 historyList.addEventListener("click", (event) => {
-  const item = event.target.closest("[data-generation-id]");
-  if (item) {
-    openGeneration(Number(item.dataset.generationId), { subscribe: false, autoplay: false });
+  const action = event.target.closest("[data-action]");
+  if (!action) {
+    return;
+  }
+  const generationId = Number(action.dataset.generationId);
+  if (action.dataset.action === "delete") {
+    deleteGeneration(generationId);
+    return;
+  }
+  if (action.dataset.action === "open") {
+    openGeneration(generationId, { subscribe: false, autoplay: false });
   }
 });
 
@@ -424,6 +500,10 @@ audioPlayer.addEventListener("ended", () => {
   const nextIndex = state.currentSegmentIndex + 1;
   if (state.autoplay && state.currentDetail && nextIndex < state.currentDetail.text_segments.length) {
     playSegment(nextIndex);
+    return;
+  }
+  if (state.currentDetail && state.currentSegmentIndex >= state.currentDetail.text_segments.length - 1) {
+    saveProgress(state.currentSegmentIndex, { completed: true });
   }
 });
 
