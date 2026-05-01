@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
 from tts_app.events import EventBroker
-from tts_app.providers.base import ProviderError, TTSOptions, TTSProvider
+from tts_app.providers.base import TTSOptions, TTSProvider
 from tts_app.segmenter import segment_text
 from tts_app.storage import Storage
 
@@ -55,9 +56,14 @@ class GenerationService:
         try:
             for text_segment in detail["text_segments"]:
                 await self._run_segment(generation_id, text_segment, voice)
-        except ProviderError as exc:
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
             self.storage.update_generation_status(generation_id, "failed", str(exc))
-            await self.broker.publish(generation_id, {"type": "generation_failed", "error": str(exc)})
+            await self.broker.publish(
+                generation_id,
+                {"type": "generation_failed", "generation_id": generation_id, "error": str(exc)},
+            )
             return
 
         self.storage.update_generation_status(generation_id, "completed")
@@ -66,46 +72,52 @@ class GenerationService:
     async def _run_segment(self, generation_id: int, text_segment: dict[str, Any], voice: str) -> None:
         segment_index = int(text_segment["segment_index"])
         self.storage.update_text_segment_status(int(text_segment["id"]), "running")
-        await self.broker.publish(
-            generation_id,
-            {"type": "segment_started", "segment_index": segment_index, "text_segment_id": text_segment["id"]},
-        )
 
-        data_parts: list[bytes] = []
-        mime_type = "audio/mpeg"
-        extension = "mp3"
-        async for chunk in self.provider.stream_speech(text_segment["text"], TTSOptions(voice=voice)):
-            data_parts.append(chunk.data)
-            mime_type = chunk.mime_type
-            extension = chunk.extension
+        try:
+            await self.broker.publish(
+                generation_id,
+                {"type": "segment_started", "segment_index": segment_index, "text_segment_id": text_segment["id"]},
+            )
+            data_parts: list[bytes] = []
+            mime_type = "audio/mpeg"
+            extension = "mp3"
+            async for chunk in self.provider.stream_speech(text_segment["text"], TTSOptions(voice=voice)):
+                data_parts.append(chunk.data)
+                mime_type = chunk.mime_type
+                extension = chunk.extension
 
-        data = b"".join(data_parts)
-        filename = f"segment-{segment_index + 1:04d}.{extension}"
-        absolute_path = self.audio_dir / str(generation_id) / filename
-        relative_path = absolute_path.relative_to(self.audio_dir.parent)
-        absolute_path.parent.mkdir(parents=True, exist_ok=True)
-        absolute_path.write_bytes(data)
+            data = b"".join(data_parts)
+            filename = f"segment-{segment_index + 1:04d}.{extension}"
+            absolute_path = self.audio_dir / str(generation_id) / filename
+            relative_path = absolute_path.relative_to(self.audio_dir.parent)
+            absolute_path.parent.mkdir(parents=True, exist_ok=True)
+            absolute_path.write_bytes(data)
 
-        self.storage.update_text_segment_status(int(text_segment["id"]), "completed")
-        audio_id = self.storage.record_audio_segment(
-            generation_id=generation_id,
-            text_segment_id=int(text_segment["id"]),
-            segment_index=segment_index,
-            file_path=str(relative_path),
-            mime_type=mime_type,
-            duration_ms=None,
-            byte_size=len(data),
-            status="completed",
-            error=None,
-        )
-        await self.broker.publish(
-            generation_id,
-            {
-                "type": "segment_completed",
-                "generation_id": generation_id,
-                "segment_index": segment_index,
-                "text_segment_id": text_segment["id"],
-                "audio_segment_id": audio_id,
-                "audio_url": f"/api/audio/{generation_id}/{audio_id}",
-            },
-        )
+            self.storage.update_text_segment_status(int(text_segment["id"]), "completed")
+            audio_id = self.storage.record_audio_segment(
+                generation_id=generation_id,
+                text_segment_id=int(text_segment["id"]),
+                segment_index=segment_index,
+                file_path=str(relative_path),
+                mime_type=mime_type,
+                duration_ms=None,
+                byte_size=len(data),
+                status="completed",
+                error=None,
+            )
+            await self.broker.publish(
+                generation_id,
+                {
+                    "type": "segment_completed",
+                    "generation_id": generation_id,
+                    "segment_index": segment_index,
+                    "text_segment_id": text_segment["id"],
+                    "audio_segment_id": audio_id,
+                    "audio_url": f"/api/audio/{generation_id}/{audio_id}",
+                },
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.storage.update_text_segment_status(int(text_segment["id"]), "failed")
+            raise

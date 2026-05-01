@@ -19,13 +19,13 @@ from tts_app.storage import Storage
 class TextGenerationRequest(BaseModel):
     text: str = Field(min_length=1)
     title: str = "Manual text"
-    voice: str = "Test"
+    voice: str | None = None
     autoplay: bool = True
 
 
 class UrlGenerationRequest(BaseModel):
     url: str = Field(min_length=1)
-    voice: str = "Test"
+    voice: str | None = None
     autoplay: bool = True
 
 
@@ -56,17 +56,19 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
 
     @app.post("/api/generations/text")
     async def submit_text(payload: TextGenerationRequest, background_tasks: BackgroundTasks):
+        voice = payload.voice or active_settings.qwen_voice
         generation_id = await service.create_from_text(
             text=payload.text,
             title=payload.title,
-            voice=payload.voice,
+            voice=voice,
             settings={"autoplay": payload.autoplay},
         )
-        await _schedule_generation(service, generation_id, payload.voice, background_tasks, run_background_inline)
+        await _schedule_generation(service, generation_id, voice, background_tasks, run_background_inline)
         return {"generation_id": generation_id}
 
     @app.post("/api/generations/url")
     async def submit_url(payload: UrlGenerationRequest, background_tasks: BackgroundTasks):
+        voice = payload.voice or active_settings.qwen_voice
         try:
             extracted = await fetch_and_extract(payload.url)
         except ExtractionError as exc:
@@ -76,10 +78,10 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             title=extracted.title,
             source_type="url",
             url=extracted.url,
-            voice=payload.voice,
+            voice=voice,
             settings={"autoplay": payload.autoplay},
         )
-        await _schedule_generation(service, generation_id, payload.voice, background_tasks, run_background_inline)
+        await _schedule_generation(service, generation_id, voice, background_tasks, run_background_inline)
         return {"generation_id": generation_id}
 
     @app.get("/api/generations")

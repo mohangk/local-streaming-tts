@@ -18,6 +18,10 @@ uvicorn tts_app.api:create_app --factory --host 0.0.0.0 --port 8000
 
 Open `http://127.0.0.1:8000` locally, or use the machine's Tailscale address when exposing it to your own devices.
 
+## Trust Boundary
+
+URL generation fetches pages server-side from the host running this app. When exposing the app over Tailscale, only grant access to trusted devices and users: anyone who can use the app can ask the host to fetch arbitrary HTTP(S) URLs reachable from that machine.
+
 ## Development Provider
 
 The default provider is `fake`, which writes deterministic small audio-like files and does not call an external API.

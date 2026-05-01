@@ -56,6 +56,15 @@ def test_frontend_fetch_paths_have_error_handling():
     assert "resetPlaybackState(" in js
 
 
+def test_frontend_generation_submit_uses_failed_response_detail():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    submit = js.split("async function submitGeneration(event)", 1)[1].split("async function loadHistory()", 1)[0]
+
+    assert "await response.json()" in submit
+    assert "error.detail" in submit
+    assert "Generation failed to start" in submit
+
+
 def test_frontend_generation_detail_loads_ignore_stale_results():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     detail_loader = js.split("async function loadGenerationDetail(generationId)", 1)[1].split(

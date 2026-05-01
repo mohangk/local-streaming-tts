@@ -13,6 +13,7 @@ import starlette.testclient
 from fastapi.testclient import TestClient
 
 from tts_app.api import create_app
+from tts_app.extractor import ExtractedText
 
 
 def _patch_starlette_1_testclient_for_tests() -> None:
@@ -128,6 +129,70 @@ def test_submit_text_starts_generation_and_history_returns_item(test_settings):
     assert history.status_code == 200
     assert history.json()[0]["id"] == generation_id
     assert history.json()[0]["title"] == "Note"
+
+
+def test_submit_text_defaults_to_configured_qwen_voice(test_settings):
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    generation_id = client.post(
+        "/api/generations/text",
+        json={"text": "Hello world.", "title": "Note"},
+    ).json()["generation_id"]
+
+    detail = client.get(f"/api/generations/{generation_id}").json()
+
+    assert detail["generation"]["voice"] == test_settings.qwen_voice
+
+
+def test_submit_text_preserves_explicit_voice(test_settings):
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    generation_id = client.post(
+        "/api/generations/text",
+        json={"text": "Hello world.", "title": "Note", "voice": "Custom"},
+    ).json()["generation_id"]
+
+    detail = client.get(f"/api/generations/{generation_id}").json()
+
+    assert detail["generation"]["voice"] == "Custom"
+
+
+def test_submit_url_defaults_to_configured_qwen_voice(test_settings, monkeypatch):
+    async def fake_fetch_and_extract(url: str) -> ExtractedText:
+        return ExtractedText(title="Page", text="Hello world from a fetched page.", url=url)
+
+    monkeypatch.setattr("tts_app.api.fetch_and_extract", fake_fetch_and_extract)
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    generation_id = client.post(
+        "/api/generations/url",
+        json={"url": "https://example.test/page"},
+    ).json()["generation_id"]
+
+    detail = client.get(f"/api/generations/{generation_id}").json()
+
+    assert detail["generation"]["voice"] == test_settings.qwen_voice
+
+
+def test_submit_url_preserves_explicit_voice(test_settings, monkeypatch):
+    async def fake_fetch_and_extract(url: str) -> ExtractedText:
+        return ExtractedText(title="Page", text="Hello world from a fetched page.", url=url)
+
+    monkeypatch.setattr("tts_app.api.fetch_and_extract", fake_fetch_and_extract)
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    generation_id = client.post(
+        "/api/generations/url",
+        json={"url": "https://example.test/page", "voice": "Custom"},
+    ).json()["generation_id"]
+
+    detail = client.get(f"/api/generations/{generation_id}").json()
+
+    assert detail["generation"]["voice"] == "Custom"
 
 
 def test_generation_detail_contains_audio_after_background_task(test_settings):

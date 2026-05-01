@@ -87,7 +87,8 @@ async function submitGeneration(event) {
     });
 
     if (!response.ok) {
-      playerStatus.textContent = "Generation failed to start";
+      const error = await response.json();
+      playerStatus.textContent = error.detail || "Generation failed to start";
       return;
     }
 
