@@ -93,11 +93,98 @@ async def test_qwen_provider_turns_server_error_into_provider_error():
     assert websocket.closed is True
 
 
+@pytest.mark.asyncio
+async def test_qwen_provider_wraps_connect_failure_in_provider_error():
+    async def connect(url, additional_headers):
+        raise OSError("dns failed")
+
+    provider = QwenTTSProvider(
+        api_key="key",
+        model="qwen3-tts-flash-realtime",
+        realtime_url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime",
+        connect=connect,
+    )
+
+    with pytest.raises(ProviderError, match="qwen provider failed: dns failed"):
+        async for _ in provider.stream_speech("hello", TTSOptions(voice="Cherry")):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_qwen_provider_rejects_invalid_audio_delta_and_closes_websocket():
+    websocket = FakeWebSocket([{"type": "response.audio.delta", "delta": "not base64!"}])
+
+    async def connect(url, additional_headers):
+        return websocket
+
+    provider = QwenTTSProvider(
+        api_key="key",
+        model="qwen3-tts-flash-realtime",
+        realtime_url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime",
+        connect=connect,
+    )
+
+    with pytest.raises(ProviderError, match="invalid audio delta"):
+        async for _ in provider.stream_speech("hello", TTSOptions(voice="Cherry")):
+            pass
+    assert websocket.closed is True
+
+
+@pytest.mark.asyncio
+async def test_qwen_provider_rejects_missing_audio_delta_and_closes_websocket():
+    websocket = FakeWebSocket([{"type": "response.audio.delta"}])
+
+    async def connect(url, additional_headers):
+        return websocket
+
+    provider = QwenTTSProvider(
+        api_key="key",
+        model="qwen3-tts-flash-realtime",
+        realtime_url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime",
+        connect=connect,
+    )
+
+    with pytest.raises(ProviderError, match="invalid audio delta"):
+        async for _ in provider.stream_speech("hello", TTSOptions(voice="Cherry")):
+            pass
+    assert websocket.closed is True
+
+
+@pytest.mark.asyncio
+async def test_qwen_provider_close_error_does_not_mask_provider_error():
+    websocket = FakeWebSocket([{"type": "error", "error": {"message": "bad voice"}}], close_error=RuntimeError("close failed"))
+
+    async def connect(url, additional_headers):
+        return websocket
+
+    provider = QwenTTSProvider(
+        api_key="key",
+        model="qwen3-tts-flash-realtime",
+        realtime_url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime",
+        connect=connect,
+    )
+
+    with pytest.raises(ProviderError, match="bad voice"):
+        async for _ in provider.stream_speech("hello", TTSOptions(voice="Missing")):
+            pass
+
+
+def test_qwen_provider_build_url_preserves_query_and_urlencodes_model():
+    provider = QwenTTSProvider(
+        api_key="key",
+        model="qwen 3/tts+flash",
+        realtime_url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?workspace=abc",
+    )
+
+    assert provider._build_url() == "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?workspace=abc&model=qwen+3%2Ftts%2Bflash"
+
+
 class FakeWebSocket:
-    def __init__(self, events):
+    def __init__(self, events, close_error=None):
         self.events = [json.dumps(event) for event in events]
         self.sent_events = []
         self.closed = False
+        self.close_error = close_error
 
     async def send(self, message):
         self.sent_events.append(json.loads(message))
@@ -112,3 +199,5 @@ class FakeWebSocket:
 
     async def close(self):
         self.closed = True
+        if self.close_error is not None:
+            raise self.close_error
