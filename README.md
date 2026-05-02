@@ -61,14 +61,29 @@ Versioned VPS deployment files live in `setup/`, matching the pattern used by
 
 - `setup/tts.service`: source-of-truth systemd unit for `/etc/systemd/system/tts.service`
 - `setup/envrc.local.example`: environment file template for `/home/mohan/tts/.envrc.local`
+- `setup/setup-venv.sh`: creates `.venv` and installs Python dependencies
+- `setup/install-service.sh`: installs/enables the systemd service
 - `setup/README.md`: install, update, diagnostics, and recovery commands
 
-Install or update the unit with:
+Prepare the Python environment, then install or update the unit:
+
+```bash
+setup/setup-venv.sh
+setup/install-service.sh
+```
+
+Manual equivalent:
 
 ```bash
 sudo install -m 0644 setup/tts.service /etc/systemd/system/tts.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now tts
+```
+
+Set the Qwen API key in `/home/mohan/tts/.envrc.local`:
+
+```bash
+DASHSCOPE_API_KEY=<your-key>
 ```
 
 ## Trust Boundary

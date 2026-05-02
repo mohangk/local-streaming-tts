@@ -10,16 +10,41 @@ tailnet clients.
 
 ## One-time install
 
-Prerequisites: repo cloned at `/home/mohan/tts` with venv created and
-dependencies installed:
+Prerequisite: repo cloned at `/home/mohan/tts`.
+
+Run the venv setup script:
 
 ```bash
 cd /home/mohan/tts
-python -m venv .venv
-.venv/bin/pip install -e ".[dev]"
+setup/setup-venv.sh
 ```
 
-1. Copy `setup/envrc.local.example` to `/home/mohan/tts/.envrc.local`, fill in
+Run the systemd setup script:
+
+```bash
+setup/install-service.sh
+```
+
+The venv script creates `.venv` if needed and installs dependencies. The systemd
+script creates `.envrc.local` from the example if it is missing and
+installs/enables the service.
+
+Expose via Tailscale Serve:
+
+```bash
+sudo tailscale serve --bg --https=8001 http://127.0.0.1:8001
+```
+
+Manual equivalent:
+
+1. Create the venv and install dependencies:
+
+   ```bash
+   python -m venv .venv
+   .venv/bin/pip install -e ".[dev]"
+   ```
+
+2. Copy `setup/envrc.local.example` to `/home/mohan/tts/.envrc.local`, fill in
    the real DashScope API key, and restrict permissions:
 
    ```bash
@@ -27,7 +52,7 @@ python -m venv .venv
    chmod 0600 .envrc.local
    ```
 
-2. Install the unit file and enable the service:
+3. Install the unit file and enable the service:
 
    ```bash
    sudo install -m 0644 setup/tts.service /etc/systemd/system/tts.service
@@ -35,17 +60,32 @@ python -m venv .venv
    sudo systemctl enable --now tts
    ```
 
-3. Expose via Tailscale Serve:
+4. Expose via Tailscale Serve:
 
    ```bash
    sudo tailscale serve --bg --https=8001 http://127.0.0.1:8001
    ```
 
-4. Verify from a trusted tailnet client:
+5. Verify from a trusted tailnet client:
 
    ```text
    https://pongo.lorikeet-dragon.ts.net:8001
    ```
+
+## Qwen API key
+
+Put the key in `/home/mohan/tts/.envrc.local`:
+
+```bash
+DASHSCOPE_API_KEY=<your-key>
+```
+
+The systemd unit reads this file through `EnvironmentFile=`. After changing the
+key, restart the service:
+
+```bash
+sudo systemctl restart tts
+```
 
 ## Day-to-day update flows
 
