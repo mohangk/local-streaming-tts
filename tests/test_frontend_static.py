@@ -70,12 +70,40 @@ def test_frontend_requests_screen_wake_lock_during_playback():
     )[0]
 
 
-def test_frontend_history_open_disables_subscription_and_autoplay():
+def test_frontend_history_open_loads_and_autoplays_generation():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     handler = js.split('historyList.addEventListener("click"', 1)[1].split('readingPane.addEventListener("click"', 1)[0]
 
-    assert 'action.dataset.action === "open"' in handler
-    assert "openGeneration(generationId, { subscribe: false, autoplay: false })" in handler
+    assert 'historyItem = event.target.closest("[data-generation-id]")' in handler
+    assert 'action?.dataset.action === "open"' in handler
+    assert "openGeneration(generationId, { subscribe: false, autoplay: true })" in handler
+
+
+def test_frontend_history_autoplay_resumes_saved_segment():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    opener = js.split("async function openGeneration(generationId", 1)[1].split(
+        "async function loadGenerationDetail", 1
+    )[0]
+
+    assert "playSegment(state.currentSegmentIndex)" in opener
+    assert "playSegment(0)" not in opener
+
+
+def test_frontend_navigation_stops_playback_and_clears_audio_buffer():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    assert "function stopPlayback" in js
+    stopper = js.split("function stopPlayback", 1)[1].split("function handleEventSourceError", 1)[0]
+    nav_handler = js.split("navButtons.forEach", 1)[1].split("textModeButton.addEventListener", 1)[0]
+    back_handler = js.split('backToHistory.addEventListener("click"', 1)[1].split(
+        'historyList.addEventListener("click"', 1
+    )[0]
+
+    assert "audioPlayer.pause()" in stopper
+    assert 'audioPlayer.removeAttribute("src")' in stopper
+    assert "audioPlayer.load()" in stopper
+    assert "state.continuousPlayback = false" in stopper
+    assert "stopPlayback()" in nav_handler
+    assert "stopPlayback()" in back_handler
 
 
 def test_frontend_history_renders_url_metadata_and_delete_controls():

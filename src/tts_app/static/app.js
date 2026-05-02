@@ -247,6 +247,7 @@ async function deleteGeneration(generationId) {
 
 async function openGeneration(generationId, options = {}) {
   const settings = { subscribe: false, autoplay: false, ...options };
+  stopPlayback();
   state.currentGenerationId = generationId;
   state.currentSegmentIndex = 0;
   state.autoplay = Boolean(settings.autoplay);
@@ -259,7 +260,7 @@ async function openGeneration(generationId, options = {}) {
   }
   const loaded = await loadGenerationDetail(generationId);
   if (loaded && state.autoplay) {
-    playSegment(0);
+    playSegment(state.currentSegmentIndex);
   }
 }
 
@@ -300,16 +301,21 @@ function closeEventSource() {
 
 function resetPlaybackState(message) {
   closeEventSource();
-  audioPlayer.pause();
-  audioPlayer.removeAttribute("src");
+  stopPlayback();
   state.currentGenerationId = null;
   state.currentDetail = null;
   state.currentSegmentIndex = 0;
-  state.autoplay = false;
-  state.continuousPlayback = false;
-  releaseWakeLock();
   readingPane.innerHTML = "";
   playerStatus.textContent = message;
+}
+
+function stopPlayback() {
+  state.autoplay = false;
+  state.continuousPlayback = false;
+  audioPlayer.pause();
+  audioPlayer.removeAttribute("src");
+  audioPlayer.load();
+  releaseWakeLock();
   playPauseButton.textContent = "Play";
 }
 
@@ -470,27 +476,39 @@ function updatePlayerStatus() {
 }
 
 navButtons.forEach((button) => {
-  button.addEventListener("click", () => showView(button.dataset.view));
+  button.addEventListener("click", () => {
+    stopPlayback();
+    closeEventSource();
+    showView(button.dataset.view);
+  });
 });
 
 textModeButton.addEventListener("click", () => setInputMode("text"));
 urlModeButton.addEventListener("click", () => setInputMode("url"));
 generateForm.addEventListener("submit", submitGeneration);
 historySearch.addEventListener("input", renderHistory);
-backToHistory.addEventListener("click", () => showView("history-view"));
+backToHistory.addEventListener("click", () => {
+  stopPlayback();
+  closeEventSource();
+  showView("history-view");
+});
 
 historyList.addEventListener("click", (event) => {
   const action = event.target.closest("[data-action]");
-  if (!action) {
+  const historyItem = event.target.closest("[data-generation-id]");
+  if (!historyItem) {
     return;
   }
-  const generationId = Number(action.dataset.generationId);
-  if (action.dataset.action === "delete") {
+  const generationId = Number(historyItem.dataset.generationId);
+  if (action?.dataset.action === "delete") {
     deleteGeneration(generationId);
     return;
   }
-  if (action.dataset.action === "open") {
-    openGeneration(generationId, { subscribe: false, autoplay: false });
+  if (action?.dataset.action === "open" || !action) {
+    if (event.target.closest(".history-details") && !action) {
+      return;
+    }
+    openGeneration(generationId, { subscribe: false, autoplay: true });
   }
 });
 
