@@ -1,8 +1,11 @@
 .venv/
 .envrc.local
+.codex
 __pycache__/
 *.pyc
 .pytest_cache/
 data/
+logs/
+*.mp3
 dist/
 *.egg-info/
