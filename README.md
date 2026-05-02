@@ -18,6 +18,32 @@ pip install -e ".[dev]"
 
 Open `http://127.0.0.1:8001` locally.
 
+## Development Start
+
+Use this while actively editing the app. `--reload` restarts the Python process when files under `src/` change. Tailscale Serve can stay running because it only proxies HTTPS to localhost.
+
+```bash
+cd /home/mohan/tts
+
+TTS_PROVIDER=qwen \
+.venv/bin/uvicorn tts_app.api:create_app \
+  --factory \
+  --reload \
+  --reload-dir src \
+  --host 127.0.0.1 \
+  --port 8001 \
+  --log-level info
+```
+
+Open `https://pongo.lorikeet-dragon.ts.net:8001` from a trusted tailnet device.
+
+To keep application and access logs in a file while still seeing them in the terminal:
+
+```bash
+mkdir -p logs
+TTS_PROVIDER=qwen .venv/bin/uvicorn tts_app.api:create_app --factory --reload --reload-dir src --host 127.0.0.1 --port 8001 --log-level info 2>&1 | tee -a logs/app.log
+```
+
 ## Tailscale Serve
 
 This VPS exposes local HTTP services as HTTPS ports through Tailscale Serve. Keep the app bound to localhost and publish it like this:

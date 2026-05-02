@@ -16,6 +16,8 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "$0.13 / 10K characters" in readme
     assert "Application Logging" in readme
     assert "tts_app.generation" in readme
+    assert "Development Start" in readme
+    assert "--reload-dir src" in readme
     assert "Storage" in agents
     assert "Tailscale" in agents
     assert "Do not commit secrets" in agents
