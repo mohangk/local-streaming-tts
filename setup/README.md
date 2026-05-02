@@ -1,12 +1,12 @@
-# Deploying local TTS on pongo
+# Deploying local TTS
 
 This folder is the source of truth for the VPS deployment. The unit file in
-`/etc/systemd/system/` on pongo should be installed from `tts.service` in this
+`/etc/systemd/system/` should be installed from `tts.service` in this
 folder.
 
 The setup mirrors `time-consumer`: a localhost-bound development server runs
-under systemd with reload enabled, and Tailscale Serve terminates HTTPS for
-tailnet clients.
+under systemd with reload enabled. If remote access is needed, put a private
+HTTPS proxy in front of `127.0.0.1:8001`.
 
 ## One-time install
 
@@ -28,12 +28,6 @@ setup/install-service.sh
 The venv script creates `.venv` if needed and installs dependencies. The systemd
 script creates `.envrc.local` from the example if it is missing and
 installs/enables the service.
-
-Expose via Tailscale Serve:
-
-```bash
-sudo tailscale serve --bg --https=8001 http://127.0.0.1:8001
-```
 
 Manual equivalent:
 
@@ -60,16 +54,10 @@ Manual equivalent:
    sudo systemctl enable --now tts
    ```
 
-4. Expose via Tailscale Serve:
-
-   ```bash
-   sudo tailscale serve --bg --https=8001 http://127.0.0.1:8001
-   ```
-
-5. Verify from a trusted tailnet client:
+4. Verify locally:
 
    ```text
-   https://pongo.lorikeet-dragon.ts.net:8001
+   http://127.0.0.1:8001
    ```
 
 ## Qwen API key
@@ -130,7 +118,6 @@ Edits to `.envrc.local` are picked up on service restart. They do not require
 ```bash
 systemctl status tts
 journalctl -u tts -f
-tailscale serve status
 ss -ltnp | grep :8001
 ```
 
@@ -141,5 +128,4 @@ ss -ltnp | grep :8001
 | SyntaxError after `git pull` | Reloader logs traceback; previous worker may keep serving | Save a fix; reloader re-imports |
 | Missing API key | Qwen generations fail with provider auth errors | Add `DASHSCOPE_API_KEY` to `.envrc.local`; restart |
 | Env file missing | Unit fails during startup | Copy `setup/envrc.local.example` to `.envrc.local`; restart |
-| Tailscale Serve config drift | URL no longer resolves | Re-run `sudo tailscale serve --bg --https=8001 http://127.0.0.1:8001` |
 | Port 8001 already in use | Unit fails with address-in-use error | `ss -ltnp \| grep :8001`, stop the conflicting process, restart |

@@ -7,7 +7,6 @@ def test_handoff_docs_exist_and_cover_local_operations():
     readme = Path("README.md").read_text(encoding="utf-8")
     agents = Path("AGENTS.md").read_text(encoding="utf-8")
 
-    assert "Tailscale" in readme
     assert "Qwen" in readme
     assert "pytest" in readme
     assert "uvicorn" in readme
@@ -20,7 +19,7 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "--reload-dir src" in readme
     assert "Systemd Deployment" in readme
     assert "Storage" in agents
-    assert "Tailscale" in agents
+    assert "Private Proxy" in agents
     assert "setup/tts.service" in agents
     assert "Do not commit secrets" in agents
     assert "Pricing Notes" in agents
@@ -40,7 +39,6 @@ def test_systemd_setup_files_match_vps_pattern():
     assert "--host 127.0.0.1" in service
     assert "--port 8001" in service
     assert "sudo install -m 0644 setup/tts.service /etc/systemd/system/tts.service" in readme
-    assert "sudo tailscale serve --bg --https=8001 http://127.0.0.1:8001" in readme
     assert "journalctl -u tts -f" in readme
     assert "TTS_PROVIDER=qwen" in env_example
     assert "DASHSCOPE_API_KEY=" in env_example
@@ -48,7 +46,8 @@ def test_systemd_setup_files_match_vps_pattern():
     assert "setup/setup-venv.sh" in readme
     assert "DASHSCOPE_API_KEY" in install_script
     assert "sudo systemctl enable --now tts" in install_script
-    assert "sudo tailscale serve --bg --https=8001 http://127.0.0.1:8001" in readme
+    assert "private" in readme
+    assert "HTTPS proxy" in readme
     assert "python -m venv .venv" in venv_script
     assert '.venv/bin/pip install -e ".[dev]"' in venv_script
     assert "pip install" not in install_script

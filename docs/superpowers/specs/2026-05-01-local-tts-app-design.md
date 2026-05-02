@@ -6,7 +6,7 @@ Date: 2026-05-01
 
 Build a local, mobile-first web app for generating text-to-speech audio from pasted text or a URL. The app will stream generation segment by segment, play audio as it becomes available by default, and persist all source text, generation metadata, and generated audio for later replay.
 
-The app is intended for local hosting first, with later access through Tailscale. It is not designed as a public multi-user service in v1.
+The app is intended for local hosting first, with optional private-network access. It is not designed as a public multi-user service in v1.
 
 ## Goals
 
@@ -221,4 +221,4 @@ The fake provider should produce deterministic small audio-like fixture bytes so
 - Additional TTS providers.
 - More voice controls in the UI.
 - Optional cleanup policy for old generated audio.
-- Optional Tailscale-aware access guidance.
+- Optional private-proxy access guidance.

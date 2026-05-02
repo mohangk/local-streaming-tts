@@ -124,7 +124,7 @@ pip install -e ".[dev]"
 uvicorn tts_app.api:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-Open `http://127.0.0.1:8000` locally, or use the machine's Tailscale address when exposing it to your own devices.
+Open `http://127.0.0.1:8000` locally, or use a private proxy URL when exposing it to your own devices.
 
 ## Development Provider
 

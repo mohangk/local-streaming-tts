@@ -2,7 +2,7 @@
 
 ## Project
 
-This repo contains a local, mobile-first FastAPI app for generating streamed text-to-speech audio from pasted text or simple HTML URLs. It is intended to run on the VPS as a localhost HTTP service and be exposed to trusted devices through Tailscale Serve.
+This repo contains a local, mobile-first FastAPI app for generating streamed text-to-speech audio from pasted text or simple HTML URLs. It is intended to run as a localhost HTTP service and optionally be exposed to trusted devices through a private HTTPS proxy.
 
 ## Layout
 
@@ -34,20 +34,14 @@ Run locally with Qwen:
 TTS_PROVIDER=qwen .venv/bin/uvicorn tts_app.api:create_app --factory --host 127.0.0.1 --port 8001
 ```
 
-## Tailscale
+## Private Proxy
 
-The VPS pattern is a plain HTTP service bound to localhost, exposed through HTTPS by Tailscale Serve:
-
-```bash
-sudo tailscale serve --bg --https=8001 http://127.0.0.1:8001
-```
-
-Then open `https://pongo.lorikeet-dragon.ts.net:8001` from a trusted tailnet device.
+The deployment pattern is a plain HTTP service bound to `127.0.0.1:8001`. If remote access is needed, put a private HTTPS proxy in front of that local port and grant access only to trusted devices.
 
 ## Systemd
 
 The versioned systemd deployment source lives under `setup/`, mirroring
-`/home/mohan/time-consumer/setup/`.
+the setup folder used by companion local services.
 
 - `setup/tts.service` installs to `/etc/systemd/system/tts.service`.
 - `setup/envrc.local.example` is copied to `/home/mohan/tts/.envrc.local` and filled with real secrets.

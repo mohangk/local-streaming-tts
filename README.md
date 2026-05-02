@@ -20,7 +20,7 @@ Open `http://127.0.0.1:8001` locally.
 
 ## Development Start
 
-Use this while actively editing the app. `--reload` restarts the Python process when files under `src/` change. Tailscale Serve can stay running because it only proxies HTTPS to localhost.
+Use this while actively editing the app. `--reload` restarts the Python process when files under `src/` change.
 
 ```bash
 cd /home/mohan/tts
@@ -35,7 +35,7 @@ TTS_PROVIDER=qwen \
   --log-level info
 ```
 
-Open `https://pongo.lorikeet-dragon.ts.net:8001` from a trusted tailnet device.
+Open `http://127.0.0.1:8001` locally, or use your private HTTPS proxy URL if you have one configured.
 
 To keep application and access logs in a file while still seeing them in the terminal:
 
@@ -44,20 +44,10 @@ mkdir -p logs
 TTS_PROVIDER=qwen .venv/bin/uvicorn tts_app.api:create_app --factory --reload --reload-dir src --host 127.0.0.1 --port 8001 --log-level info 2>&1 | tee -a logs/app.log
 ```
 
-## Tailscale Serve
-
-This VPS exposes local HTTP services as HTTPS ports through Tailscale Serve. Keep the app bound to localhost and publish it like this:
-
-```bash
-sudo tailscale serve --bg --https=8001 http://127.0.0.1:8001
-```
-
-Then open `https://pongo.lorikeet-dragon.ts.net:8001` from a trusted tailnet device.
-
 ## Systemd Deployment
 
 Versioned VPS deployment files live in `setup/`, matching the pattern used by
-`/home/mohan/time-consumer`:
+the companion local services on the host:
 
 - `setup/tts.service`: source-of-truth systemd unit for `/etc/systemd/system/tts.service`
 - `setup/envrc.local.example`: environment file template for `/home/mohan/tts/.envrc.local`
@@ -88,7 +78,7 @@ DASHSCOPE_API_KEY=<your-key>
 
 ## Trust Boundary
 
-URL generation fetches pages server-side from the host running this app. When exposing the app over Tailscale, only grant access to trusted devices and users: anyone who can use the app can ask the host to fetch arbitrary HTTP(S) URLs reachable from that machine.
+URL generation fetches pages server-side from the host running this app. When exposing the app beyond localhost, only grant access to trusted devices and users: anyone who can use the app can ask the host to fetch arbitrary HTTP(S) URLs reachable from that machine.
 
 ## Development Provider
 
