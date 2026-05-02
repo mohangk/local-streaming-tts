@@ -54,6 +54,10 @@ Do not remove user data or generated audio unless the user explicitly asks. Dele
 
 The fake provider is deterministic and should be used for tests and local UI checks. Qwen credentials come from `DASHSCOPE_API_KEY` or `QWEN_API_KEY`. Do not commit secrets, API keys, generated smoke-test audio, or local data files.
 
+## Pricing Notes
+
+The app currently uses `qwen3-tts-flash-realtime` by default. Alibaba Cloud Model Studio pricing is captured in `README.md` with the source URL and capture date. As of the May 02, 2026 capture, the international endpoint price is `$0.13 / 10K input text characters` with output not billed. Use that as context for future estimated-cost tracking, but re-check the Alibaba pricing page before implementing billing-sensitive behavior.
+
 ## Development Rules
 
 - Prefer focused tests for storage/API/frontend behavior before implementation.
