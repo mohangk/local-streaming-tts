@@ -440,4 +440,4 @@ def test_root_serves_frontend(test_settings):
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Local TTS" in response.text
+    assert "Readvox" in response.text

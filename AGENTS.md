@@ -2,7 +2,7 @@
 
 ## Project
 
-This repo contains a local, mobile-first FastAPI app for generating streamed text-to-speech audio from pasted text or simple HTML URLs. It is intended to run as a localhost HTTP service and optionally be exposed to trusted devices through a private HTTPS proxy.
+This repo contains Readvox, a local, mobile-first FastAPI app for generating streamed text-to-speech audio from pasted text or simple HTML URLs. It is intended to run as a localhost HTTP service and optionally be exposed to trusted devices through a private HTTPS proxy.
 
 ## Layout
 

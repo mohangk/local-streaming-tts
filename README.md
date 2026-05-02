@@ -1,6 +1,6 @@
-# Local Streaming TTS
+# Readvox
 
-Local, mobile-first web app for generating streamed text-to-speech audio from pasted text or basic HTML page URLs.
+Readvox is a local, mobile-first web app for generating streamed text-to-speech audio from pasted text or basic HTML page URLs.
 
 ## Setup
 

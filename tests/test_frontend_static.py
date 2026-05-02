@@ -12,6 +12,7 @@ def test_frontend_has_generate_history_and_playback_views():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     assert 'id="generate-view"' in html
+    assert "<title>Readvox</title>" in html
     assert 'id="history-view"' in html
     assert 'id="playback-view"' in html
     assert 'id="autoplay"' in html

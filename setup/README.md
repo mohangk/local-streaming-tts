@@ -1,4 +1,4 @@
-# Deploying local TTS
+# Deploying Readvox
 
 This folder is the source of truth for the VPS deployment. The unit file in
 `/etc/systemd/system/` should be installed from `tts.service` in this

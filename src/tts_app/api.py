@@ -55,7 +55,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
         audio_dir=active_settings.audio_dir,
         segment_max_chars=active_settings.segment_max_chars,
     )
-    app = FastAPI(title="Local Streaming TTS")
+    app = FastAPI(title="Readvox")
     static_dir = Path(__file__).parent / "static"
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
     app.state.settings = active_settings

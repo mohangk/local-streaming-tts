@@ -6,7 +6,10 @@ from pathlib import Path
 def test_handoff_docs_exist_and_cover_local_operations():
     readme = Path("README.md").read_text(encoding="utf-8")
     agents = Path("AGENTS.md").read_text(encoding="utf-8")
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
+    assert "# Readvox" in readme
+    assert "name = \"readvox\"" in pyproject
     assert "Qwen" in readme
     assert "pytest" in readme
     assert "uvicorn" in readme

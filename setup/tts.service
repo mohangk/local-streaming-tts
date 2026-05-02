@@ -1,5 +1,5 @@
 [Unit]
-Description=Local streaming TTS FastAPI app
+Description=Readvox FastAPI app
 After=network-online.target
 Wants=network-online.target
 

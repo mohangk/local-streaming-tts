@@ -1,1 +1,1 @@
-"""Local streaming TTS app."""
+"""Readvox app."""
