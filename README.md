@@ -71,6 +71,17 @@ Generated entries are persisted in SQLite with the full extracted or pasted text
 
 History entries can be deleted from the UI. Deletion removes the database row, cascades text/audio segment metadata, and removes cached audio files for that generation.
 
+## Application Logging
+
+Uvicorn access logs show HTTP requests. The app also emits structured application logs through Python's standard `logging` module under `tts_app.api` and `tts_app.generation`. These include generation submission, URL extraction failures, generation start/completion/failure, segment start/completion/failure, playback progress updates, and deletion.
+
+In development, run with Uvicorn log level `info` and pipe stdout/stderr if you want a file:
+
+```bash
+mkdir -p logs
+TTS_PROVIDER=qwen .venv/bin/uvicorn tts_app.api:create_app --factory --reload --reload-dir src --host 127.0.0.1 --port 8001 --log-level info 2>&1 | tee -a logs/app.log
+```
+
 ## Tests
 
 ```bash

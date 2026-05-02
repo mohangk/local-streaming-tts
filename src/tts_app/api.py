@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from collections.abc import Iterable
 from pathlib import Path
@@ -17,6 +18,8 @@ from tts_app.generation import GenerationService
 from tts_app.providers.options import SelectOption
 from tts_app.providers.registry import get_provider
 from tts_app.storage import Storage
+
+logger = logging.getLogger(__name__)
 
 
 class TextGenerationRequest(BaseModel):
@@ -85,6 +88,13 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             voice=voice,
             settings={"autoplay": payload.autoplay, "speed": payload.speed},
         )
+        logger.info(
+            "text_generation_submitted generation_id=%s voice=%s speed=%s text_chars=%s",
+            generation_id,
+            voice,
+            payload.speed,
+            len(payload.text),
+        )
         await _schedule_generation(service, generation_id, voice, payload.speed, background_tasks, run_background_inline)
         return {"generation_id": generation_id}
 
@@ -94,6 +104,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
         try:
             extracted = await fetch_and_extract(payload.url)
         except ExtractionError as exc:
+            logger.warning("url_extraction_failed url=%s error=%s", payload.url, exc)
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         generation_id = await service.create_from_text(
             text=extracted.text,
@@ -102,6 +113,14 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             url=extracted.url,
             voice=voice,
             settings={"autoplay": payload.autoplay, "speed": payload.speed},
+        )
+        logger.info(
+            "url_generation_submitted generation_id=%s voice=%s speed=%s url=%s text_chars=%s",
+            generation_id,
+            voice,
+            payload.speed,
+            extracted.url,
+            len(extracted.text),
         )
         await _schedule_generation(service, generation_id, voice, payload.speed, background_tasks, run_background_inline)
         return {"generation_id": generation_id}
@@ -120,9 +139,17 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     @app.put("/api/generations/{generation_id}/progress")
     async def update_progress(generation_id: int, payload: ProgressRequest):
         try:
-            return storage.update_generation_progress(generation_id, payload.segment_index, payload.completed)
+            progress = storage.update_generation_progress(generation_id, payload.segment_index, payload.completed)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="generation not found") from exc
+        logger.info(
+            "generation_progress_updated generation_id=%s segment_index=%s completed=%s progress_percent=%s",
+            generation_id,
+            progress["last_segment_index"],
+            payload.completed,
+            progress["progress_percent"],
+        )
+        return progress
 
     @app.delete("/api/generations/{generation_id}", status_code=204)
     async def delete_generation(generation_id: int):
@@ -132,6 +159,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="generation not found") from exc
         shutil.rmtree(active_settings.audio_dir / str(generation_id), ignore_errors=True)
+        logger.info("generation_deleted generation_id=%s", generation_id)
         return Response(status_code=204)
 
     @app.get("/api/audio/{generation_id}/{audio_segment_id}")

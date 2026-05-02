@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import AsyncIterator
 
 import pytest
@@ -60,6 +61,30 @@ async def test_generation_service_persists_segments_and_audio(test_settings):
 
 
 @pytest.mark.asyncio
+async def test_generation_service_logs_generation_lifecycle(test_settings, caplog):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    broker = EventBroker()
+    service = GenerationService(
+        storage=storage,
+        provider=FakeTTSProvider(),
+        broker=broker,
+        audio_dir=test_settings.audio_dir,
+        segment_max_chars=20,
+    )
+
+    with caplog.at_level(logging.INFO, logger="tts_app.generation"):
+        generation_id = await service.create_from_text("Hello world.", title="Manual text", voice="Jennifer")
+        await service.run_generation(generation_id, voice="Jennifer", speed=1.25)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(f"generation_created generation_id={generation_id}" in message for message in messages)
+    assert any(f"generation_started generation_id={generation_id}" in message for message in messages)
+    assert any(f"generation_completed generation_id={generation_id}" in message for message in messages)
+    assert any(f"segment_completed generation_id={generation_id} segment_index=0" in message for message in messages)
+
+
+@pytest.mark.asyncio
 async def test_generation_service_passes_speed_to_provider(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
@@ -106,7 +131,7 @@ async def test_generation_service_writes_audio_under_custom_audio_dir(test_setti
 
 
 @pytest.mark.asyncio
-async def test_generation_service_marks_active_segment_failed_on_provider_error(test_settings):
+async def test_generation_service_marks_active_segment_failed_on_provider_error(test_settings, caplog):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
     broker = EventBroker()
@@ -119,7 +144,8 @@ async def test_generation_service_marks_active_segment_failed_on_provider_error(
     )
 
     generation_id = await service.create_from_text("Hello world.", title="Manual text")
-    await service.run_generation(generation_id)
+    with caplog.at_level(logging.ERROR, logger="tts_app.generation"):
+        await service.run_generation(generation_id)
 
     detail = storage.get_generation(generation_id)
     events = []
@@ -132,6 +158,7 @@ async def test_generation_service_marks_active_segment_failed_on_provider_error(
     assert detail["generation"]["error"] == "bad voice"
     assert detail["text_segments"][0]["status"] == "failed"
     assert events[-1] == {"type": "generation_failed", "generation_id": generation_id, "error": "bad voice"}
+    assert any(f"generation_failed generation_id={generation_id}" in record.getMessage() for record in caplog.records)
 
 
 @pytest.mark.asyncio

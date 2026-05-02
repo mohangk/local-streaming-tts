@@ -14,6 +14,8 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "model-pricing" in readme
     assert "qwen3-tts-flash-realtime" in readme
     assert "$0.13 / 10K characters" in readme
+    assert "Application Logging" in readme
+    assert "tts_app.generation" in readme
     assert "Storage" in agents
     assert "Tailscale" in agents
     assert "Do not commit secrets" in agents

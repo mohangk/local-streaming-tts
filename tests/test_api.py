@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -130,6 +131,24 @@ def test_submit_text_starts_generation_and_history_returns_item(test_settings):
     assert history.status_code == 200
     assert history.json()[0]["id"] == generation_id
     assert history.json()[0]["title"] == "Note"
+
+
+def test_submit_text_logs_generation_request(test_settings, caplog):
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="tts_app.api"):
+        response = client.post(
+            "/api/generations/text",
+            json={"text": "Hello world.", "title": "Note", "voice": "Jennifer", "speed": 1.25},
+        )
+
+    assert response.status_code == 200
+    generation_id = response.json()["generation_id"]
+    assert any(
+        f"text_generation_submitted generation_id={generation_id} voice=Jennifer speed=1.25" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_submit_text_defaults_to_configured_qwen_voice(test_settings):
