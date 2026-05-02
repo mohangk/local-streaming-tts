@@ -33,12 +33,41 @@ def test_frontend_javascript_uses_history_and_event_endpoints():
     assert "scrollIntoView" in js
 
 
-def test_frontend_javascript_ended_handler_respects_autoplay_toggle():
+def test_frontend_javascript_ended_handler_respects_continuous_playback():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     handler = js.split('audioPlayer.addEventListener("ended"', 1)[1].split("loadHistory();", 1)[0]
 
-    assert "state.autoplay" in handler
+    assert "state.continuousPlayback" in handler
     assert "playSegment(nextIndex)" in handler
+
+
+def test_frontend_user_started_history_playback_continues_between_segments():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    play_button_handler = js.split('playPauseButton.addEventListener("click"', 1)[1].split(
+        'audioPlayer.addEventListener("play"', 1
+    )[0]
+    reading_handler = js.split('readingPane.addEventListener("click"', 1)[1].split(
+        'playPauseButton.addEventListener("click"', 1
+    )[0]
+
+    assert "state.continuousPlayback = true" in play_button_handler
+    assert "state.continuousPlayback = false" in play_button_handler
+    assert "state.continuousPlayback = true" in reading_handler
+
+
+def test_frontend_requests_screen_wake_lock_during_playback():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "async function acquireWakeLock" in js
+    assert "navigator.wakeLock.request(\"screen\")" in js
+    assert "function releaseWakeLock" in js
+    assert "document.addEventListener(\"visibilitychange\"" in js
+    assert "acquireWakeLock()" in js.split('audioPlayer.addEventListener("play"', 1)[1].split(
+        'audioPlayer.addEventListener("pause"', 1
+    )[0]
+    assert "releaseWakeLock()" in js.split('audioPlayer.addEventListener("pause"', 1)[1].split(
+        'audioPlayer.addEventListener("ended"', 1
+    )[0]
 
 
 def test_frontend_history_open_disables_subscription_and_autoplay():

@@ -6,6 +6,8 @@ const state = {
   currentSegmentIndex: 0,
   eventSource: null,
   autoplay: false,
+  continuousPlayback: false,
+  wakeLock: null,
   options: {
     default_voice: "Cherry",
     default_speed: 1.0,
@@ -156,6 +158,29 @@ async function loadHistory() {
   }
 }
 
+async function acquireWakeLock() {
+  if (!("wakeLock" in navigator) || state.wakeLock) {
+    return;
+  }
+  try {
+    state.wakeLock = await navigator.wakeLock.request("screen");
+    state.wakeLock.addEventListener("release", () => {
+      state.wakeLock = null;
+    });
+  } catch {
+    state.wakeLock = null;
+  }
+}
+
+function releaseWakeLock() {
+  if (!state.wakeLock) {
+    return;
+  }
+  const lock = state.wakeLock;
+  state.wakeLock = null;
+  lock.release().catch(() => {});
+}
+
 function renderHistory() {
   const query = historySearch.value.trim().toLowerCase();
   const rows = state.generations.filter((item) => {
@@ -225,6 +250,7 @@ async function openGeneration(generationId, options = {}) {
   state.currentGenerationId = generationId;
   state.currentSegmentIndex = 0;
   state.autoplay = Boolean(settings.autoplay);
+  state.continuousPlayback = state.autoplay;
   showView("playback-view");
   if (settings.subscribe) {
     subscribeToGeneration(generationId);
@@ -280,6 +306,8 @@ function resetPlaybackState(message) {
   state.currentDetail = null;
   state.currentSegmentIndex = 0;
   state.autoplay = false;
+  state.continuousPlayback = false;
+  releaseWakeLock();
   readingPane.innerHTML = "";
   playerStatus.textContent = message;
   playPauseButton.textContent = "Play";
@@ -469,12 +497,14 @@ historyList.addEventListener("click", (event) => {
 readingPane.addEventListener("click", (event) => {
   const segment = event.target.closest("[data-segment-index]");
   if (segment) {
+    state.continuousPlayback = true;
     playSegment(Number(segment.dataset.segmentIndex));
   }
 });
 
 playPauseButton.addEventListener("click", () => {
   if (audioPlayer.paused) {
+    state.continuousPlayback = true;
     const audio = audioSegmentForIndex(state.currentSegmentIndex);
     if (audioPlayer.src && audio) {
       audioPlayer.play().catch(() => {
@@ -485,25 +515,36 @@ playPauseButton.addEventListener("click", () => {
     }
     return;
   }
+  state.continuousPlayback = false;
   audioPlayer.pause();
 });
 
 audioPlayer.addEventListener("play", () => {
   playPauseButton.textContent = "Pause";
+  acquireWakeLock();
 });
 
 audioPlayer.addEventListener("pause", () => {
   playPauseButton.textContent = "Play";
+  releaseWakeLock();
 });
 
 audioPlayer.addEventListener("ended", () => {
   const nextIndex = state.currentSegmentIndex + 1;
-  if (state.autoplay && state.currentDetail && nextIndex < state.currentDetail.text_segments.length) {
+  if (state.continuousPlayback && state.currentDetail && nextIndex < state.currentDetail.text_segments.length) {
     playSegment(nextIndex);
     return;
   }
   if (state.currentDetail && state.currentSegmentIndex >= state.currentDetail.text_segments.length - 1) {
     saveProgress(state.currentSegmentIndex, { completed: true });
+  }
+  state.continuousPlayback = false;
+  releaseWakeLock();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !audioPlayer.paused) {
+    acquireWakeLock();
   }
 });
 
