@@ -1,0 +1,11 @@
+# Copy to /home/mohan/tts/.envrc.local on the host and fill in real values.
+# Bare KEY=value lines (no `export`) so direnv (`dotenv`) and systemd
+# (`EnvironmentFile=`) can both read the same file.
+
+TTS_PROVIDER=qwen
+DASHSCOPE_API_KEY=
+QWEN_MODEL=qwen3-tts-flash-realtime
+QWEN_REALTIME_URL=wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime
+QWEN_VOICE=Jennifer
+TTS_DATA_DIR=/home/mohan/tts/data
+TTS_SEGMENT_MAX_CHARS=550

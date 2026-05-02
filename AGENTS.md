@@ -44,6 +44,17 @@ sudo tailscale serve --bg --https=8001 http://127.0.0.1:8001
 
 Then open `https://pongo.lorikeet-dragon.ts.net:8001` from a trusted tailnet device.
 
+## Systemd
+
+The versioned systemd deployment source lives under `setup/`, mirroring
+`/home/mohan/time-consumer/setup/`.
+
+- `setup/tts.service` installs to `/etc/systemd/system/tts.service`.
+- `setup/envrc.local.example` is copied to `/home/mohan/tts/.envrc.local` and filled with real secrets.
+- `setup/README.md` contains install, update, diagnostics, and failure-mode commands.
+
+Do not commit `.envrc.local`.
+
 ## Storage
 
 The default data directory is `data/`. SQLite stores generations, text segments, audio segment metadata, provider settings, and playback progress. Audio files are cached under `data/audio/<generation_id>/`.

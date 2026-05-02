@@ -54,6 +54,23 @@ sudo tailscale serve --bg --https=8001 http://127.0.0.1:8001
 
 Then open `https://pongo.lorikeet-dragon.ts.net:8001` from a trusted tailnet device.
 
+## Systemd Deployment
+
+Versioned VPS deployment files live in `setup/`, matching the pattern used by
+`/home/mohan/time-consumer`:
+
+- `setup/tts.service`: source-of-truth systemd unit for `/etc/systemd/system/tts.service`
+- `setup/envrc.local.example`: environment file template for `/home/mohan/tts/.envrc.local`
+- `setup/README.md`: install, update, diagnostics, and recovery commands
+
+Install or update the unit with:
+
+```bash
+sudo install -m 0644 setup/tts.service /etc/systemd/system/tts.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now tts
+```
+
 ## Trust Boundary
 
 URL generation fetches pages server-side from the host running this app. When exposing the app over Tailscale, only grant access to trusted devices and users: anyone who can use the app can ask the host to fetch arbitrary HTTP(S) URLs reachable from that machine.

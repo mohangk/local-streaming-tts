@@ -1,0 +1,23 @@
+[Unit]
+Description=Local streaming TTS FastAPI app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mohan
+Group=mohan
+WorkingDirectory=/home/mohan/tts
+EnvironmentFile=/home/mohan/tts/.envrc.local
+ExecStart=/home/mohan/tts/.venv/bin/python -m uvicorn tts_app.api:create_app \
+    --factory \
+    --reload \
+    --reload-dir /home/mohan/tts/src \
+    --host 127.0.0.1 \
+    --port 8001 \
+    --log-level info
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
