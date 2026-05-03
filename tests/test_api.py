@@ -19,6 +19,7 @@ from tts_app.api import create_app
 from tts_app.extractor import ExtractedText
 from tts_app.ocr_providers.base import OCROptions, OCRProviderError
 from tts_app.providers.base import AudioChunk, TTSOptions
+from tts_app.providers.options import SelectOption
 
 
 def _patch_starlette_1_testclient_for_tests() -> None:
@@ -123,7 +124,8 @@ _patch_starlette_1_testclient_for_tests()
 
 class CapturingTTSProvider:
     name = "capturing"
-    voice_options = ()
+    english_voices = (SelectOption("Capture English", "Capture English", language="en"),)
+    chinese_voices = (SelectOption("Capture Chinese", "Capture Chinese", language="zh"),)
     speed_options = ()
 
     def __init__(self):
@@ -182,7 +184,7 @@ def test_submit_text_logs_generation_request(test_settings, caplog):
     )
 
 
-def test_submit_text_defaults_to_configured_qwen_voice(test_settings):
+def test_submit_text_defaults_to_configured_english_voice(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
 
@@ -193,7 +195,7 @@ def test_submit_text_defaults_to_configured_qwen_voice(test_settings):
 
     detail = client.get(f"/api/generations/{generation_id}").json()
 
-    assert detail["generation"]["voice"] == test_settings.qwen_voice
+    assert detail["generation"]["voice"] == test_settings.default_english_voice
 
 
 def test_options_returns_voice_and_speed_choices(test_settings):
@@ -205,9 +207,9 @@ def test_options_returns_voice_and_speed_choices(test_settings):
     assert response.status_code == 200
     body = response.json()
     assert body["default_language"] == "en"
-    assert body["default_voices"]["en"] == test_settings.qwen_voice
+    assert body["default_voices"]["en"] == test_settings.default_english_voice
     assert body["default_voices"]["zh"] == "Fake Chinese"
-    assert body["default_voice"] == test_settings.qwen_voice
+    assert body["default_voice"] == test_settings.default_english_voice
     fake_english = next(voice for voice in body["voices"] if voice["value"] == "Fake English")
     assert fake_english["language"] == "en"
     assert fake_english["preferred"] is False
@@ -551,7 +553,7 @@ def test_submit_text_rejects_invalid_speed(test_settings):
     assert response.status_code == 422
 
 
-def test_submit_url_defaults_to_configured_qwen_voice(test_settings, monkeypatch):
+def test_submit_url_defaults_to_configured_english_voice(test_settings, monkeypatch):
     async def fake_fetch_and_extract(url: str) -> ExtractedText:
         return ExtractedText(title="Page", text="Hello world from a fetched page.", url=url)
 
@@ -566,7 +568,7 @@ def test_submit_url_defaults_to_configured_qwen_voice(test_settings, monkeypatch
 
     detail = client.get(f"/api/generations/{generation_id}").json()
 
-    assert detail["generation"]["voice"] == test_settings.qwen_voice
+    assert detail["generation"]["voice"] == test_settings.default_english_voice
 
 
 def test_submit_url_preserves_explicit_voice(test_settings, monkeypatch):

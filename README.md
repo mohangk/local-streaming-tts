@@ -93,12 +93,15 @@ TTS_PROVIDER=fake .venv/bin/uvicorn tts_app.api:create_app --factory --reload --
 ```bash
 TTS_PROVIDER=qwen
 DASHSCOPE_API_KEY=...
-QWEN_MODEL=qwen3-tts-flash-realtime
+TTS_MODEL=qwen3-tts-flash-realtime
 QWEN_REALTIME_URL=wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime
-QWEN_VOICE=Jennifer
+TTS_DEFAULT_ENGLISH_VOICE=Jennifer
+TTS_DEFAULT_CHINESE_VOICE=Cherry
 ```
 
-The Generate page loads English-capable Qwen voice choices and speed presets from `/api/options`. The selected voice and speed are stored with each generation.
+The Generate page loads language-aware Qwen voice choices and speed presets from `/api/options`. The selected voice and speed are stored with each generation.
+
+TODO: update existing `.envrc.local` deployments to use `TTS_MODEL`, `OCR_MODEL`, and `OCR_PROVIDER=qwen`, and remove old `QWEN_MODEL`, `QWEN_OCR_MODEL`, and `QWEN_VOICE` entries.
 
 ## OCR Image Mode
 
@@ -110,7 +113,7 @@ OCR and image settings:
 
 ```bash
 OCR_PROVIDER=fake
-QWEN_OCR_MODEL=qwen-vl-ocr
+OCR_MODEL=qwen-vl-ocr
 TTS_IMAGE_DIR=data/images
 TTS_MAX_IMAGE_BYTES=10485760
 TTS_DEFAULT_ENGLISH_VOICE=Jennifer

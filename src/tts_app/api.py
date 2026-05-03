@@ -216,7 +216,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             extracted_text = await ocr_provider.extract_text(
                 image_bytes,
                 mime_type,
-                OCROptions(language=language, model=active_settings.qwen_ocr_model),
+                OCROptions(language=language, model=active_settings.ocr_model),
             )
         except OCRProviderError as exc:
             storage.update_ocr_draft_ocr_result(
@@ -360,7 +360,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     @app.post("/api/generations/text")
     async def submit_text(payload: TextGenerationRequest, background_tasks: BackgroundTasks):
         _validate_language(payload.language)
-        voice = payload.voice or active_settings.qwen_voice
+        voice = payload.voice or active_settings.default_english_voice
         generation_id = await service.create_from_text(
             text=payload.text,
             title=payload.title,
@@ -388,7 +388,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     @app.post("/api/generations/url")
     async def submit_url(payload: UrlGenerationRequest, background_tasks: BackgroundTasks):
         _validate_language(payload.language)
-        voice = payload.voice or active_settings.qwen_voice
+        voice = payload.voice or active_settings.default_english_voice
         try:
             extracted = await fetch_and_extract(payload.url)
         except ExtractionError as exc:
