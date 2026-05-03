@@ -303,7 +303,7 @@ def test_update_ocr_draft_and_create_generation(test_settings):
 
     generation = client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
-        json={"text": "Reviewed text.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+        json={"text": "Wrong text.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
     )
 
     assert generation.status_code == 200

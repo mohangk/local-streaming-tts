@@ -279,13 +279,16 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     ):
         _validate_ocr_language(payload.language)
         try:
-            storage.get_ocr_draft(draft_id)
+            draft = storage.get_ocr_draft(draft_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="ocr draft not found") from exc
 
+        reviewed_text = str(draft["extracted_text"])
+        if not reviewed_text.strip():
+            raise HTTPException(status_code=400, detail="ocr draft text is empty")
         voice = payload.voice or _default_voice_for_language(active_settings, payload.language)
         generation_id = await service.create_from_text(
-            text=payload.text,
+            text=reviewed_text,
             title="Image text",
             source_type="image",
             url=None,
@@ -304,7 +307,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             generation_id,
             voice,
             payload.speed,
-            len(payload.text),
+            len(reviewed_text),
         )
         await _schedule_generation(service, generation_id, voice, payload.speed, background_tasks, run_background_inline)
         return {"generation_id": generation_id}
