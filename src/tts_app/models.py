@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-SourceType = Literal["text", "url"]
+SourceType = Literal["text", "url", "image"]
+Language = Literal["en", "zh"]
 Status = Literal["queued", "running", "completed", "failed"]
 
 

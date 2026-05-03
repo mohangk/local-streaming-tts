@@ -35,7 +35,7 @@ class Storage:
                 """
                 CREATE TABLE IF NOT EXISTS generations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source_type TEXT NOT NULL CHECK (source_type IN ('text', 'url')),
+                    source_type TEXT NOT NULL CHECK (source_type IN ('text', 'url', 'image')),
                     title TEXT NOT NULL,
                     url TEXT,
                     full_text TEXT NOT NULL,
@@ -78,6 +78,22 @@ class Storage:
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (generation_id, text_segment_id, segment_index) REFERENCES text_segments(generation_id, id, segment_index) ON DELETE CASCADE,
                     UNIQUE(generation_id, segment_index)
+                );
+
+                CREATE TABLE IF NOT EXISTS ocr_drafts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    image_path TEXT NOT NULL,
+                    original_filename TEXT,
+                    mime_type TEXT NOT NULL,
+                    byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+                    ocr_model TEXT NOT NULL,
+                    language TEXT NOT NULL,
+                    extracted_text TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+                    error TEXT,
+                    linked_generation_id INTEGER REFERENCES generations(id) ON DELETE SET NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
 
                 CREATE TABLE IF NOT EXISTS voice_preferences (
@@ -304,6 +320,128 @@ class Storage:
         if row is None:
             raise KeyError(f"audio segment {audio_segment_id} not found")
         return dict(row)
+
+    def create_ocr_draft(
+        self,
+        image_path: str,
+        original_filename: str | None,
+        mime_type: str,
+        byte_size: int,
+        ocr_model: str,
+        language: str,
+        extracted_text: str,
+        status: Status,
+        error: str | None = None,
+    ) -> int:
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO ocr_drafts
+                    (image_path, original_filename, mime_type, byte_size, ocr_model, language, extracted_text, status, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (image_path, original_filename, mime_type, byte_size, ocr_model, language, extracted_text, status, error),
+            )
+            return int(cur.lastrowid)
+
+    def get_ocr_draft(self, draft_id: int) -> dict[str, Any]:
+        with self.connection() as conn:
+            row = conn.execute("SELECT * FROM ocr_drafts WHERE id = ?", (draft_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"ocr draft {draft_id} not found")
+        return dict(row)
+
+    def list_ocr_drafts(self) -> list[dict[str, Any]]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM ocr_drafts
+                ORDER BY datetime(created_at) DESC, id DESC
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_ocr_draft(self, draft_id: int, *, extracted_text: str, language: str) -> None:
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE ocr_drafts
+                SET extracted_text = ?, language = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (extracted_text, language, draft_id),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(f"ocr draft {draft_id} not found")
+
+    def update_ocr_draft_ocr_result(
+        self,
+        draft_id: int,
+        *,
+        image_path: str,
+        extracted_text: str,
+        status: Status,
+        error: str | None,
+    ) -> None:
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE ocr_drafts
+                SET image_path = ?, extracted_text = ?, status = ?, error = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (image_path, extracted_text, status, error, draft_id),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(f"ocr draft {draft_id} not found")
+
+    def update_ocr_draft_status(self, draft_id: int, status: Status, error: str | None = None) -> None:
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE ocr_drafts
+                SET status = ?, error = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (status, error, draft_id),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(f"ocr draft {draft_id} not found")
+
+    def link_ocr_draft_generation(self, draft_id: int, generation_id: int) -> None:
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE ocr_drafts
+                SET linked_generation_id = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (generation_id, draft_id),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(f"ocr draft {draft_id} not found")
+
+    def delete_ocr_draft(self, draft_id: int) -> dict[str, Any]:
+        draft = self.get_ocr_draft(draft_id)
+        if draft["linked_generation_id"] is not None:
+            raise ValueError("ocr draft is linked to generation")
+        with self.connection() as conn:
+            conn.execute("DELETE FROM ocr_drafts WHERE id = ?", (draft_id,))
+        return draft
+
+    def force_delete_ocr_draft(self, draft_id: int) -> dict[str, Any]:
+        draft = self.get_ocr_draft(draft_id)
+        with self.connection() as conn:
+            conn.execute("DELETE FROM ocr_drafts WHERE id = ?", (draft_id,))
+        return draft
+
+    def get_ocr_draft_for_generation(self, generation_id: int) -> dict[str, Any] | None:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM ocr_drafts WHERE linked_generation_id = ?",
+                (generation_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
 
     def set_voice_preference(self, voice: str, language: str, preferred: bool) -> None:
         self._validate_voice_language(language)

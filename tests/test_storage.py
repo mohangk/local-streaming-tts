@@ -374,6 +374,63 @@ def test_updating_missing_text_segment_raises_key_error(test_settings):
         storage.update_text_segment_status(999, "completed")
 
 
+def test_ocr_draft_round_trip(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+
+    draft_id = storage.create_ocr_draft(
+        image_path="images/1/source.jpg",
+        original_filename="page.jpg",
+        mime_type="image/jpeg",
+        byte_size=123,
+        ocr_model="qwen-vl-ocr",
+        language="zh",
+        extracted_text="你好\nni hao",
+        status="completed",
+    )
+
+    draft = storage.get_ocr_draft(draft_id)
+    assert draft["id"] == draft_id
+    assert draft["image_path"] == "images/1/source.jpg"
+    assert draft["language"] == "zh"
+    assert draft["extracted_text"] == "你好\nni hao"
+    assert storage.list_ocr_drafts()[0]["id"] == draft_id
+
+
+def test_update_ocr_draft_text_and_language(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "raw", "completed")
+
+    storage.update_ocr_draft(draft_id, extracted_text="reviewed text", language="zh")
+
+    draft = storage.get_ocr_draft(draft_id)
+    assert draft["extracted_text"] == "reviewed text"
+    assert draft["language"] == "zh"
+
+
+def test_delete_unlinked_ocr_draft(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "text", "completed")
+
+    storage.delete_ocr_draft(draft_id)
+
+    with pytest.raises(KeyError, match=f"ocr draft {draft_id} not found"):
+        storage.get_ocr_draft(draft_id)
+
+
+def test_delete_linked_ocr_draft_is_blocked(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "text", "completed")
+    generation_id = storage.create_generation("image", "Image text", None, "text", "fake", "Test", {"ocr_draft_id": draft_id})
+    storage.link_ocr_draft_generation(draft_id, generation_id)
+
+    with pytest.raises(ValueError, match="linked to generation"):
+        storage.delete_ocr_draft(draft_id)
+
+
 def test_voice_preference_round_trip(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
