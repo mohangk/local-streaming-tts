@@ -274,6 +274,62 @@ def test_voice_sample_uses_chinese_script(test_settings, monkeypatch):
     assert options.language == "Chinese"
 
 
+def test_create_ocr_draft_stores_image_and_returns_text(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/ocr-drafts",
+        data={"language": "zh"},
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["language"] == "zh"
+    assert "Fake OCR text" in body["extracted_text"]
+    assert (test_settings.data_dir / body["image_path"]).exists()
+
+
+def test_update_ocr_draft_and_create_generation(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        data={"language": "en"},
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+
+    update = client.put(f"/api/ocr-drafts/{draft['id']}", json={"language": "en", "extracted_text": "Reviewed text."})
+    assert update.status_code == 200
+
+    generation = client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={"text": "Reviewed text.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+    )
+
+    assert generation.status_code == 200
+    detail = client.get(f"/api/generations/{generation.json()['generation_id']}").json()
+    assert detail["generation"]["source_type"] == "image"
+    assert detail["generation"]["full_text"] == "Reviewed text."
+    assert detail["generation"]["settings"]["ocr_draft_id"] == draft["id"]
+
+
+def test_delete_linked_ocr_draft_is_rejected_by_api(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        data={"language": "en"},
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+    client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={"text": "Reviewed text.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+    )
+
+    response = client.delete(f"/api/ocr-drafts/{draft['id']}")
+
+    assert response.status_code == 409
+
+
 def test_submit_text_preserves_explicit_voice(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)

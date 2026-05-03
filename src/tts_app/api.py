@@ -6,7 +6,7 @@ import shutil
 from collections.abc import Iterable
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -15,6 +15,8 @@ from tts_app.config import Settings, load_settings
 from tts_app.events import EventBroker
 from tts_app.extractor import ExtractionError, fetch_and_extract
 from tts_app.generation import GenerationService
+from tts_app.ocr_providers.base import OCROptions, OCRProviderError
+from tts_app.ocr_providers.registry import get_ocr_provider
 from tts_app.providers.base import TTSOptions
 from tts_app.providers.options import SelectOption
 from tts_app.providers.registry import get_provider
@@ -62,6 +64,19 @@ class VoiceSampleRequest(BaseModel):
     language: str = "en"
 
 
+class OcrDraftUpdateRequest(BaseModel):
+    language: str
+    extracted_text: str
+
+
+class OcrDraftGenerationRequest(BaseModel):
+    text: str = Field(min_length=1)
+    voice: str | None = None
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    language: str = "en"
+    autoplay: bool = True
+
+
 SAMPLE_TEXT = {
     "en": "This is a short Readvox voice sample. Use it to check the voice, pacing, clarity, and listening comfort before generating the full article.",
     "zh": "这是一个简短的 Readvox 语音示例。请用它来检查声音、语速、清晰度和听感是否适合长时间收听。",
@@ -79,6 +94,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     storage.init_schema()
     broker = EventBroker()
     provider = get_provider(active_settings)
+    ocr_provider = get_ocr_provider(active_settings)
     service = GenerationService(
         storage=storage,
         provider=provider,
@@ -93,6 +109,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     app.state.storage = storage
     app.state.broker = broker
     app.state.service = service
+    app.state.ocr_provider = ocr_provider
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:
@@ -164,6 +181,133 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
                 yield chunk.data
 
         return StreamingResponse(stream(), media_type="audio/mpeg")
+
+    @app.post("/api/ocr-drafts")
+    async def create_ocr_draft(image: UploadFile = File(...), language: str = Form("en")):
+        _validate_ocr_language(language)
+        mime_type = image.content_type or "application/octet-stream"
+        if not mime_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="uploaded file must be an image")
+
+        image_bytes = await image.read()
+        if not image_bytes:
+            raise HTTPException(status_code=400, detail="uploaded image is empty")
+        if len(image_bytes) > active_settings.max_image_bytes:
+            raise HTTPException(status_code=413, detail="uploaded image is too large")
+
+        extension = _image_extension(image.filename)
+        pending_path = f"images/pending/source{extension}"
+        draft_id = storage.create_ocr_draft(
+            image_path=pending_path,
+            original_filename=image.filename,
+            mime_type=mime_type,
+            byte_size=len(image_bytes),
+            ocr_model=ocr_provider.name,
+            language=language,
+            extracted_text="",
+            status="running",
+        )
+        relative_image_path = f"images/{draft_id}/source{extension}"
+        image_path = active_settings.image_dir / str(draft_id) / f"source{extension}"
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        image_path.write_bytes(image_bytes)
+
+        try:
+            extracted_text = await ocr_provider.extract_text(
+                image_bytes,
+                mime_type,
+                OCROptions(language=language, model=active_settings.qwen_ocr_model),
+            )
+        except OCRProviderError as exc:
+            storage.update_ocr_draft_status(draft_id, "failed", str(exc))
+            logger.warning("ocr_draft_failed draft_id=%s error=%s", draft_id, exc)
+            raise HTTPException(status_code=502, detail=f"OCR failed: {exc}") from exc
+
+        storage.update_ocr_draft_ocr_result(
+            draft_id,
+            image_path=relative_image_path,
+            extracted_text=extracted_text,
+            status="completed",
+            error=None,
+        )
+        logger.info(
+            "ocr_draft_created draft_id=%s language=%s image_bytes=%s text_chars=%s",
+            draft_id,
+            language,
+            len(image_bytes),
+            len(extracted_text),
+        )
+        return storage.get_ocr_draft(draft_id)
+
+    @app.get("/api/ocr-drafts")
+    async def list_ocr_drafts():
+        return storage.list_ocr_drafts()
+
+    @app.get("/api/ocr-drafts/{draft_id}")
+    async def get_ocr_draft(draft_id: int):
+        try:
+            return storage.get_ocr_draft(draft_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="ocr draft not found") from exc
+
+    @app.put("/api/ocr-drafts/{draft_id}")
+    async def update_ocr_draft(draft_id: int, payload: OcrDraftUpdateRequest):
+        _validate_ocr_language(payload.language)
+        try:
+            storage.update_ocr_draft(draft_id, extracted_text=payload.extracted_text, language=payload.language)
+            return storage.get_ocr_draft(draft_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="ocr draft not found") from exc
+
+    @app.delete("/api/ocr-drafts/{draft_id}", status_code=204)
+    async def delete_ocr_draft(draft_id: int):
+        try:
+            storage.delete_ocr_draft(draft_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="ocr draft not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        shutil.rmtree(active_settings.image_dir / str(draft_id), ignore_errors=True)
+        logger.info("ocr_draft_deleted draft_id=%s", draft_id)
+        return Response(status_code=204)
+
+    @app.post("/api/ocr-drafts/{draft_id}/generation")
+    async def create_generation_from_ocr_draft(
+        draft_id: int,
+        payload: OcrDraftGenerationRequest,
+        background_tasks: BackgroundTasks,
+    ):
+        _validate_ocr_language(payload.language)
+        try:
+            storage.get_ocr_draft(draft_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="ocr draft not found") from exc
+
+        voice = payload.voice or _default_voice_for_language(active_settings, payload.language)
+        generation_id = await service.create_from_text(
+            text=payload.text,
+            title="Image text",
+            source_type="image",
+            url=None,
+            voice=voice,
+            settings={
+                "autoplay": payload.autoplay,
+                "speed": payload.speed,
+                "language": payload.language,
+                "ocr_draft_id": draft_id,
+            },
+        )
+        storage.link_ocr_draft_generation(draft_id, generation_id)
+        logger.info(
+            "ocr_generation_submitted draft_id=%s generation_id=%s voice=%s speed=%s text_chars=%s",
+            draft_id,
+            generation_id,
+            voice,
+            payload.speed,
+            len(payload.text),
+        )
+        await _schedule_generation(service, generation_id, voice, payload.speed, background_tasks, run_background_inline)
+        return {"generation_id": generation_id}
 
     @app.post("/api/generations/text")
     async def submit_text(payload: TextGenerationRequest, background_tasks: BackgroundTasks):
@@ -321,6 +465,24 @@ def _default_voice_for_language(options: tuple[SelectOption, ...], preferred: st
 
 def _has_voice(voices: list[dict[str, str | float | bool | None]], value: str, language: str) -> bool:
     return any(str(voice["value"]) == value and voice["language"] == language for voice in voices)
+
+
+def _validate_ocr_language(language: str) -> None:
+    if language not in {"en", "zh"}:
+        raise HTTPException(status_code=400, detail="ocr draft language must be en or zh")
+
+
+def _default_voice_for_language(settings: Settings, language: str) -> str:
+    if language == "zh":
+        return settings.default_chinese_voice
+    return settings.default_english_voice
+
+
+def _image_extension(filename: str | None) -> str:
+    suffix = Path(filename or "").suffix.lower()
+    if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}:
+        return suffix
+    return ".img"
 
 
 def _option_dicts(options: Iterable[SelectOption]) -> list[dict[str, str | float]]:
