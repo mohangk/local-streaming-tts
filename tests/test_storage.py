@@ -571,6 +571,24 @@ def test_one_ocr_draft_can_link_to_a_generation(test_settings):
         storage.link_ocr_draft_generation(second_draft_id, generation_id)
 
 
+def test_link_ocr_draft_generation_rejects_second_link_without_overwriting(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "text", "completed")
+    first_generation_id = storage.create_generation(
+        "image", "Image text", None, "text", "fake", "Test", {"ocr_draft_id": draft_id}
+    )
+    second_generation_id = storage.create_generation(
+        "image", "Other image text", None, "other text", "fake", "Test", {"ocr_draft_id": draft_id}
+    )
+    storage.link_ocr_draft_generation(draft_id, first_generation_id)
+
+    with pytest.raises(ValueError, match="ocr draft is already linked to generation"):
+        storage.link_ocr_draft_generation(draft_id, second_generation_id)
+
+    assert storage.get_ocr_draft(draft_id)["linked_generation_id"] == first_generation_id
+
+
 def test_voice_preference_round_trip(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()

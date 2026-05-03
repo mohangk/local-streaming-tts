@@ -504,12 +504,15 @@ class Storage:
                 """
                 UPDATE ocr_drafts
                 SET linked_generation_id = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
+                WHERE id = ? AND linked_generation_id IS NULL
                 """,
                 (generation_id, draft_id),
             )
             if cur.rowcount == 0:
-                raise KeyError(f"ocr draft {draft_id} not found")
+                exists = conn.execute("SELECT 1 FROM ocr_drafts WHERE id = ?", (draft_id,)).fetchone()
+                if exists is None:
+                    raise KeyError(f"ocr draft {draft_id} not found")
+                raise ValueError("ocr draft is already linked to generation")
 
     def delete_ocr_draft(self, draft_id: int) -> dict[str, Any]:
         draft = self.get_ocr_draft(draft_id)

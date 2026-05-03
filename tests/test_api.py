@@ -397,6 +397,7 @@ def test_generation_from_already_linked_ocr_draft_is_rejected(test_settings):
         f"/api/ocr-drafts/{draft['id']}/generation",
         json={"text": "Ignored.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
     )
+    generation_count = len(client.get("/api/generations").json())
 
     response = client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
@@ -404,6 +405,7 @@ def test_generation_from_already_linked_ocr_draft_is_rejected(test_settings):
     )
 
     assert response.status_code == 409
+    assert len(client.get("/api/generations").json()) == generation_count
 
 
 def test_failed_ocr_draft_generation_is_rejected_until_reviewed(test_settings, monkeypatch):

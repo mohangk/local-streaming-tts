@@ -318,7 +318,14 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
                 "ocr_draft_id": draft_id,
             },
         )
-        storage.link_ocr_draft_generation(draft_id, generation_id)
+        try:
+            storage.link_ocr_draft_generation(draft_id, generation_id)
+        except ValueError as exc:
+            storage.delete_generation(generation_id)
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except KeyError as exc:
+            storage.delete_generation(generation_id)
+            raise HTTPException(status_code=404, detail="ocr draft not found") from exc
         logger.info(
             "ocr_generation_submitted draft_id=%s generation_id=%s voice=%s speed=%s text_chars=%s",
             draft_id,
