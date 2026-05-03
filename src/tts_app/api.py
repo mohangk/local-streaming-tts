@@ -431,10 +431,14 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     async def delete_generation(generation_id: int):
         try:
             storage.get_generation(generation_id)
+            linked_ocr_draft = storage.get_ocr_draft_for_generation(generation_id)
             storage.delete_generation(generation_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="generation not found") from exc
         shutil.rmtree(active_settings.audio_dir / str(generation_id), ignore_errors=True)
+        if linked_ocr_draft is not None:
+            shutil.rmtree(active_settings.image_dir / str(linked_ocr_draft["id"]), ignore_errors=True)
+            storage.force_delete_ocr_draft(linked_ocr_draft["id"])
         logger.info("generation_deleted generation_id=%s", generation_id)
         return Response(status_code=204)
 

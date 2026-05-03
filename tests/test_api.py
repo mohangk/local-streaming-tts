@@ -632,6 +632,26 @@ def test_delete_generation_removes_history_and_audio_files(test_settings):
     assert not audio_path.exists()
 
 
+def test_delete_image_generation_removes_linked_ocr_draft_and_image(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        data={"language": "en"},
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+    image_path = test_settings.data_dir / draft["image_path"]
+    generation_id = client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={"text": "Reviewed text.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+    ).json()["generation_id"]
+
+    response = client.delete(f"/api/generations/{generation_id}")
+
+    assert response.status_code == 204
+    assert not image_path.exists()
+    assert client.get(f"/api/ocr-drafts/{draft['id']}").status_code == 404
+
+
 def test_delete_missing_generation_returns_404(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)

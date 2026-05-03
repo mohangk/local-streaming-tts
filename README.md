@@ -100,6 +100,25 @@ QWEN_VOICE=Jennifer
 
 The Generate page loads English-capable Qwen voice choices and speed presets from `/api/options`. The selected voice and speed are stored with each generation.
 
+## OCR Image Mode
+
+Image mode lets you upload a photographed or scanned page, review the OCR text, choose an English or Chinese voice, and create a normal streamed generation from the reviewed text. Uploaded source images are stored under `data/images/` by default while their OCR draft exists. Deleting an unlinked OCR draft removes its stored image directory; deleting a History entry created from an OCR draft removes the generation, cached audio, linked OCR draft, and stored image directory.
+
+Voice samples are streamed directly from the provider so you can preview voice and speed choices before generating. They do not create History entries or cached generation audio.
+
+OCR and image settings:
+
+```bash
+OCR_PROVIDER=fake
+QWEN_OCR_MODEL=qwen-vl-ocr
+TTS_IMAGE_DIR=data/images
+TTS_MAX_IMAGE_BYTES=10485760
+TTS_DEFAULT_ENGLISH_VOICE=Jennifer
+TTS_DEFAULT_CHINESE_VOICE=Cherry
+```
+
+Use `OCR_PROVIDER=fake` for tests and local UI checks. Use `OCR_PROVIDER=qwen` with `DASHSCOPE_API_KEY` or `QWEN_API_KEY` when calling Qwen OCR.
+
 ## Pricing Context
 
 Alibaba Cloud Model Studio pricing is documented at <https://www.alibabacloud.com/help/en/model-studio/model-pricing>. The pricing page was last updated by Alibaba on Apr 01, 2026.
@@ -117,7 +136,7 @@ Future cost tracking should store the model, deployment mode, input character co
 
 Generated entries are persisted in SQLite with the full extracted or pasted text, provider, voice, speed, URL when applicable, cached audio metadata, and segment-based playback progress. Regenerating the same text or URL with a different voice or speed creates a separate history entry and a separate cached audio directory.
 
-History entries can be deleted from the UI. Deletion removes the database row, cascades text/audio segment metadata, and removes cached audio files for that generation.
+History entries can be deleted from the UI. Deletion removes the database row, cascades text/audio segment metadata, and removes cached audio files for that generation. Image History deletion also removes the linked OCR draft and stored source image under `data/images/`.
 
 ## Application Logging
 

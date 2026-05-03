@@ -21,11 +21,25 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "Development Start" in readme
     assert "--reload-dir src" in readme
     assert "Systemd Deployment" in readme
+    assert "OCR Image Mode" in readme
+    assert "OCR_PROVIDER" in readme
+    assert "QWEN_OCR_MODEL" in readme
+    assert "TTS_IMAGE_DIR" in readme
+    assert "TTS_MAX_IMAGE_BYTES" in readme
+    assert "TTS_DEFAULT_ENGLISH_VOICE" in readme
+    assert "TTS_DEFAULT_CHINESE_VOICE" in readme
+    assert "data/images/" in readme
+    assert "Voice samples" in readme
+    assert "do not create History entries" in readme
     assert "Storage" in agents
     assert "Private Proxy" in agents
     assert "setup/tts.service" in agents
     assert "Do not commit secrets" in agents
     assert "Pricing Notes" in agents
+    assert "src/tts_app/ocr_providers/" in agents
+    assert "stored images" in agents
+    assert "visible Chinese text and visible pinyin" in agents
+    assert "Do not commit secrets, API keys, stored images" in agents
 
 
 def test_systemd_setup_files_match_vps_pattern():
