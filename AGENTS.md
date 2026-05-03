@@ -54,7 +54,7 @@ Do not commit `.envrc.local`.
 
 The default data directory is `data/`. SQLite stores generations, text segments, audio segment metadata, provider settings, and playback progress. Audio files are cached under `data/audio/<generation_id>/`.
 
-Images are stored under `data/images/<ocr_draft_id>/` by default. Do not remove user data, stored images, or generated audio unless the user explicitly asks or the app deletion flow is being exercised. Deleting an unlinked OCR draft through the app removes its stored image directory. Deleting an image generation through the app removes the SQLite row, cached audio directory, linked OCR draft, and stored source image directory.
+Images are stored under `data/images/<ocr_draft_id>/` by default, with one child directory per source image. Do not remove user data, stored images, or generated audio unless the user explicitly asks or the app deletion flow is being exercised. Deleting an unlinked OCR draft through the app removes its stored image directory. Deleting an image generation through the app removes the SQLite row, cached audio directory, linked OCR draft, and stored source image directories.
 
 ## Provider Notes
 

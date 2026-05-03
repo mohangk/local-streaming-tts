@@ -82,18 +82,29 @@ class Storage:
 
                 CREATE TABLE IF NOT EXISTS ocr_drafts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    image_path TEXT NOT NULL,
-                    original_filename TEXT,
-                    mime_type TEXT NOT NULL,
-                    byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
                     ocr_model TEXT NOT NULL,
                     language TEXT NOT NULL CHECK (language IN ('en', 'zh')),
-                    extracted_text TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+                    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'partial_failed', 'failed')),
                     error TEXT,
                     linked_generation_id INTEGER REFERENCES generations(id) ON DELETE SET NULL,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS ocr_draft_images (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ocr_draft_id INTEGER NOT NULL REFERENCES ocr_drafts(id) ON DELETE CASCADE,
+                    position INTEGER NOT NULL CHECK (position >= 0),
+                    image_path TEXT NOT NULL,
+                    original_filename TEXT,
+                    mime_type TEXT NOT NULL,
+                    byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+                    extracted_text TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+                    error TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(ocr_draft_id, position)
                 );
 
                 CREATE TABLE IF NOT EXISTS voice_preferences (
@@ -107,7 +118,7 @@ class Storage:
             )
             self._ensure_generation_source_type_allows_image(conn)
             self._ensure_generation_progress_columns(conn)
-            self._ensure_ocr_draft_language_check(conn)
+            self._ensure_ocr_draft_document_schema(conn)
             self._ensure_voice_preferences_language_key(conn)
             conn.execute(
                 """
@@ -157,14 +168,18 @@ class Storage:
         if "progress_percent" not in columns:
             conn.execute("ALTER TABLE generations ADD COLUMN progress_percent INTEGER NOT NULL DEFAULT 0")
 
-    def _ensure_ocr_draft_language_check(self, conn: sqlite3.Connection) -> None:
+    def _ensure_ocr_draft_document_schema(self, conn: sqlite3.Connection) -> None:
         row = conn.execute(
             """
             SELECT sql FROM sqlite_master
             WHERE type = 'table' AND name = 'ocr_drafts'
             """
         ).fetchone()
-        if row is None or row["sql"] is None or "language IN ('en', 'zh')" in row["sql"]:
+        if row is None or row["sql"] is None:
+            return
+
+        columns = {column["name"] for column in conn.execute("PRAGMA table_info(ocr_drafts)").fetchall()}
+        if "image_path" not in columns:
             return
 
         conn.executescript(
@@ -173,26 +188,43 @@ class Storage:
 
             CREATE TABLE ocr_drafts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                image_path TEXT NOT NULL,
-                original_filename TEXT,
-                mime_type TEXT NOT NULL,
-                byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
                 ocr_model TEXT NOT NULL,
                 language TEXT NOT NULL CHECK (language IN ('en', 'zh')),
-                extracted_text TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+                status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'partial_failed', 'failed')),
                 error TEXT,
                 linked_generation_id INTEGER REFERENCES generations(id) ON DELETE SET NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS ocr_draft_images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ocr_draft_id INTEGER NOT NULL REFERENCES ocr_drafts(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL CHECK (position >= 0),
+                image_path TEXT NOT NULL,
+                original_filename TEXT,
+                mime_type TEXT NOT NULL,
+                byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+                extracted_text TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+                error TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ocr_draft_id, position)
+            );
+
             INSERT INTO ocr_drafts
-                (id, image_path, original_filename, mime_type, byte_size, ocr_model, language,
-                 extracted_text, status, error, linked_generation_id, created_at, updated_at)
-            SELECT id, image_path, original_filename, mime_type, byte_size, ocr_model,
+                (id, ocr_model, language, status, error, linked_generation_id, created_at, updated_at)
+            SELECT id, ocr_model,
                    CASE WHEN language IN ('en', 'zh') THEN language ELSE 'en' END,
-                   extracted_text, status, error, linked_generation_id, created_at, updated_at
+                   status, error, linked_generation_id, created_at, updated_at
+            FROM ocr_drafts_old;
+
+            INSERT INTO ocr_draft_images
+                (ocr_draft_id, position, image_path, original_filename, mime_type, byte_size,
+                 extracted_text, status, error, created_at, updated_at)
+            SELECT id, 0, image_path, original_filename, mime_type, byte_size,
+                   extracted_text, status, error, created_at, updated_at
             FROM ocr_drafts_old;
 
             DROP TABLE ocr_drafts_old;
@@ -409,36 +441,52 @@ class Storage:
             raise KeyError(f"audio segment {audio_segment_id} not found")
         return dict(row)
 
-    def create_ocr_draft(
-        self,
-        image_path: str,
-        original_filename: str | None,
-        mime_type: str,
-        byte_size: int,
-        ocr_model: str,
-        language: str,
-        extracted_text: str,
-        status: Status,
-        error: str | None = None,
-    ) -> int:
+    def create_ocr_draft(self, ocr_model: str, language: str, status: Status, error: str | None = None) -> int:
         self._validate_ocr_language(language)
         with self.connection() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO ocr_drafts
-                    (image_path, original_filename, mime_type, byte_size, ocr_model, language, extracted_text, status, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (ocr_model, language, status, error)
+                VALUES (?, ?, ?, ?)
                 """,
-                (image_path, original_filename, mime_type, byte_size, ocr_model, language, extracted_text, status, error),
+                (ocr_model, language, status, error),
             )
             return int(cur.lastrowid)
+
+    def create_ocr_draft_image(
+        self,
+        draft_id: int,
+        position: int,
+        image_path: str,
+        original_filename: str | None,
+        mime_type: str,
+        byte_size: int,
+        extracted_text: str,
+        status: Status,
+        error: str | None = None,
+    ) -> int:
+        with self.connection() as conn:
+            self._ensure_ocr_draft_exists(conn, draft_id)
+            cur = conn.execute(
+                """
+                INSERT INTO ocr_draft_images
+                    (ocr_draft_id, position, image_path, original_filename, mime_type, byte_size, extracted_text, status, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (draft_id, position, image_path, original_filename, mime_type, byte_size, extracted_text, status, error),
+            )
+            image_id = int(cur.lastrowid)
+            self._refresh_ocr_draft_status(conn, draft_id)
+            return image_id
 
     def get_ocr_draft(self, draft_id: int) -> dict[str, Any]:
         with self.connection() as conn:
             row = conn.execute("SELECT * FROM ocr_drafts WHERE id = ?", (draft_id,)).fetchone()
-        if row is None:
-            raise KeyError(f"ocr draft {draft_id} not found")
-        return dict(row)
+            if row is None:
+                raise KeyError(f"ocr draft {draft_id} not found")
+            images = self._list_ocr_draft_images(conn, draft_id)
+        return self._ocr_draft_dict(row, images)
 
     def list_ocr_drafts(self) -> list[dict[str, Any]]:
         with self.connection() as conn:
@@ -448,25 +496,43 @@ class Storage:
                 ORDER BY datetime(created_at) DESC, id DESC
                 """
             ).fetchall()
-        return [dict(row) for row in rows]
+            images_by_draft = {
+                int(row["id"]): self._list_ocr_draft_images(conn, int(row["id"]))
+                for row in rows
+            }
+        return [self._ocr_draft_dict(row, images_by_draft[int(row["id"])]) for row in rows]
 
-    def update_ocr_draft(self, draft_id: int, *, extracted_text: str, language: str) -> None:
+    def update_ocr_draft(self, draft_id: int, *, language: str, image_texts: dict[int, str]) -> None:
         self._validate_ocr_language(language)
         with self.connection() as conn:
             cur = conn.execute(
                 """
                 UPDATE ocr_drafts
-                SET extracted_text = ?, language = ?, updated_at = CURRENT_TIMESTAMP
+                SET language = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (extracted_text, language, draft_id),
+                (language, draft_id),
             )
             if cur.rowcount == 0:
                 raise KeyError(f"ocr draft {draft_id} not found")
 
-    def update_ocr_draft_ocr_result(
+            for image_id, extracted_text in image_texts.items():
+                image_cur = conn.execute(
+                    """
+                    UPDATE ocr_draft_images
+                    SET extracted_text = ?, status = 'completed', error = NULL, updated_at = CURRENT_TIMESTAMP
+                    WHERE ocr_draft_id = ? AND id = ?
+                    """,
+                    (extracted_text, draft_id, image_id),
+                )
+                if image_cur.rowcount == 0:
+                    raise KeyError(f"ocr draft image {image_id} not found")
+            self._refresh_ocr_draft_status(conn, draft_id)
+
+    def update_ocr_draft_image_ocr_result(
         self,
         draft_id: int,
+        image_id: int,
         *,
         image_path: str,
         extracted_text: str,
@@ -476,14 +542,15 @@ class Storage:
         with self.connection() as conn:
             cur = conn.execute(
                 """
-                UPDATE ocr_drafts
+                UPDATE ocr_draft_images
                 SET image_path = ?, extracted_text = ?, status = ?, error = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
+                WHERE ocr_draft_id = ? AND id = ?
                 """,
-                (image_path, extracted_text, status, error, draft_id),
+                (image_path, extracted_text, status, error, draft_id, image_id),
             )
             if cur.rowcount == 0:
-                raise KeyError(f"ocr draft {draft_id} not found")
+                raise KeyError(f"ocr draft image {image_id} not found")
+            self._refresh_ocr_draft_status(conn, draft_id)
 
     def update_ocr_draft_status(self, draft_id: int, status: Status, error: str | None = None) -> None:
         with self.connection() as conn:
@@ -497,6 +564,53 @@ class Storage:
             )
             if cur.rowcount == 0:
                 raise KeyError(f"ocr draft {draft_id} not found")
+
+    def get_ocr_draft_image(self, draft_id: int, image_id: int) -> dict[str, Any]:
+        with self.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM ocr_draft_images
+                WHERE ocr_draft_id = ? AND id = ?
+                """,
+                (draft_id, image_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"ocr draft image {image_id} not found")
+        return dict(row)
+
+    def delete_ocr_draft_image(self, draft_id: int, image_id: int) -> dict[str, Any]:
+        with self.connection() as conn:
+            draft = conn.execute("SELECT * FROM ocr_drafts WHERE id = ?", (draft_id,)).fetchone()
+            if draft is None:
+                raise KeyError(f"ocr draft {draft_id} not found")
+            if draft["linked_generation_id"] is not None:
+                raise ValueError("ocr draft is linked to generation")
+            image = conn.execute(
+                """
+                SELECT * FROM ocr_draft_images
+                WHERE ocr_draft_id = ? AND id = ?
+                """,
+                (draft_id, image_id),
+            ).fetchone()
+            if image is None:
+                raise KeyError(f"ocr draft image {image_id} not found")
+            deleted = dict(image)
+            conn.execute("DELETE FROM ocr_draft_images WHERE id = ?", (image_id,))
+            remaining = conn.execute(
+                """
+                SELECT id FROM ocr_draft_images
+                WHERE ocr_draft_id = ?
+                ORDER BY position, id
+                """,
+                (draft_id,),
+            ).fetchall()
+            for position, row in enumerate(remaining):
+                conn.execute(
+                    "UPDATE ocr_draft_images SET position = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (position, row["id"]),
+                )
+            self._refresh_ocr_draft_status(conn, draft_id)
+        return deleted
 
     def link_ocr_draft_generation(self, draft_id: int, generation_id: int) -> None:
         with self.connection() as conn:
@@ -534,7 +648,67 @@ class Storage:
                 "SELECT * FROM ocr_drafts WHERE linked_generation_id = ?",
                 (generation_id,),
             ).fetchone()
-        return dict(row) if row is not None else None
+            if row is None:
+                return None
+            images = self._list_ocr_draft_images(conn, int(row["id"]))
+        return self._ocr_draft_dict(row, images)
+
+    def _ensure_ocr_draft_exists(self, conn: sqlite3.Connection, draft_id: int) -> None:
+        exists = conn.execute("SELECT 1 FROM ocr_drafts WHERE id = ?", (draft_id,)).fetchone()
+        if exists is None:
+            raise KeyError(f"ocr draft {draft_id} not found")
+
+    def _list_ocr_draft_images(self, conn: sqlite3.Connection, draft_id: int) -> list[dict[str, Any]]:
+        rows = conn.execute(
+            """
+            SELECT * FROM ocr_draft_images
+            WHERE ocr_draft_id = ?
+            ORDER BY position, id
+            """,
+            (draft_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def _ocr_draft_dict(self, row: sqlite3.Row, images: list[dict[str, Any]]) -> dict[str, Any]:
+        draft = dict(row)
+        draft["images"] = images
+        draft["extracted_text"] = self._combined_ocr_text(images)
+        first_image = images[0] if images else {}
+        for key in ("image_path", "original_filename", "mime_type", "byte_size"):
+            draft[key] = first_image.get(key)
+        return draft
+
+    def _combined_ocr_text(self, images: list[dict[str, Any]]) -> str:
+        return "\n\n".join(str(image["extracted_text"]).strip() for image in images if str(image["extracted_text"]).strip())
+
+    def _refresh_ocr_draft_status(self, conn: sqlite3.Connection, draft_id: int) -> None:
+        rows = conn.execute(
+            "SELECT status, error FROM ocr_draft_images WHERE ocr_draft_id = ? ORDER BY position, id",
+            (draft_id,),
+        ).fetchall()
+        if not rows:
+            status = "failed"
+            error = "OCR draft has no images"
+        else:
+            statuses = [row["status"] for row in rows]
+            errors = [row["error"] for row in rows if row["error"]]
+            if any(item in {"queued", "running"} for item in statuses):
+                status = "running"
+            elif all(item == "completed" for item in statuses):
+                status = "completed"
+            elif all(item == "failed" for item in statuses):
+                status = "failed"
+            else:
+                status = "partial_failed"
+            error = "; ".join(errors) if errors else None
+        conn.execute(
+            """
+            UPDATE ocr_drafts
+            SET status = ?, error = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (status, error, draft_id),
+        )
 
     def set_voice_preference(self, voice: str, language: str, preferred: bool) -> None:
         self._validate_voice_language(language)

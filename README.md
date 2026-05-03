@@ -105,7 +105,7 @@ TODO: update existing `.envrc.local` deployments to use `TTS_MODEL`, `OCR_MODEL`
 
 ## OCR Image Mode
 
-Image mode lets you upload a photographed or scanned page, review the OCR text, choose an English or Chinese voice, and create a normal streamed generation from the reviewed text. Uploaded source images are stored under `data/images/` by default while their OCR draft exists. Deleting an unlinked OCR draft removes its stored image directory; deleting a History entry created from an OCR draft removes the generation, cached audio, linked OCR draft, and stored image directory.
+Image mode lets you upload or capture one or more photographed/scanned pages, review the OCR text beside image thumbnails, choose an English or Chinese voice, and create one normal streamed generation from the combined reviewed text. Uploaded source images are stored under `data/images/` by default while their OCR draft exists. Deleting an unlinked OCR draft removes its stored image directory; deleting a History entry created from an OCR draft removes the generation, cached audio, linked OCR draft, and stored image directory.
 
 Voice samples are streamed directly from the provider so you can preview voice and speed choices before generating. They do not create History entries or cached generation audio.
 
@@ -139,7 +139,7 @@ Future cost tracking should store the model, deployment mode, input character co
 
 Generated entries are persisted in SQLite with the full extracted or pasted text, provider, voice, speed, URL when applicable, cached audio metadata, and segment-based playback progress. Regenerating the same text or URL with a different voice or speed creates a separate history entry and a separate cached audio directory.
 
-History entries can be deleted from the UI. Deletion removes the database row, cascades text/audio segment metadata, and removes cached audio files for that generation. Image History deletion also removes the linked OCR draft and stored source image under `data/images/`.
+History entries can be deleted from the UI. Deletion removes the database row, cascades text/audio segment metadata, and removes cached audio files for that generation. Image History deletion also removes the linked OCR draft and stored source images under `data/images/`.
 
 ## Application Logging
 

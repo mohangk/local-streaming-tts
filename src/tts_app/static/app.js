@@ -3,6 +3,7 @@ const state = {
   generations: [],
   ocrDrafts: [],
   currentOcrDraftId: null,
+  currentOcrDraft: null,
   currentGenerationId: null,
   currentDetail: null,
   currentSegmentIndex: 0,
@@ -33,7 +34,7 @@ const textLabel = document.querySelector("#text-label");
 const urlLabel = document.querySelector("#url-label");
 const imageActions = document.querySelector("#image-actions");
 const extractImageTextButton = document.querySelector("#extract-image-text");
-const ocrReviewText = document.querySelector("#ocr-review-text");
+const ocrReviewList = document.querySelector("#ocr-review-list");
 const generateOcrAudioButton = document.querySelector("#generate-ocr-audio");
 const ocrDraftsList = document.querySelector("#ocr-drafts-list");
 const generateForm = document.querySelector("#generate-form");
@@ -80,7 +81,7 @@ function setInputMode(mode) {
   imageInput.classList.toggle("hidden", !isImage);
   imageActions.classList.toggle("hidden", !isImage);
   extractImageTextButton.classList.toggle("hidden", !isImage);
-  ocrReviewText.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
+  ocrReviewList.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
   generateOcrAudioButton.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
   ocrDraftsList.classList.toggle("hidden", !isImage);
   generateSubmitButton.classList.toggle("hidden", isImage);
@@ -396,13 +397,57 @@ async function deleteGeneration(generationId) {
 
 function showOcrDraft(draft) {
   state.currentOcrDraftId = draft.id;
+  state.currentOcrDraft = draft;
   if (draft.language) {
     languageSelect.value = draft.language;
     renderOptions();
   }
-  ocrReviewText.value = draft.extracted_text || "";
-  ocrReviewText.classList.remove("hidden");
+  renderOcrReview();
+  ocrReviewList.classList.remove("hidden");
   generateOcrAudioButton.classList.remove("hidden");
+  updateGenerateOcrAudioState();
+}
+
+function renderOcrReview() {
+  const draft = state.currentOcrDraft;
+  if (!draft) {
+    ocrReviewList.innerHTML = "";
+    return;
+  }
+  ocrReviewList.innerHTML = (draft.images || [])
+    .map((image) => {
+      const error = image.error ? `<div class="history-item-url">${escapeHtml(image.error)}</div>` : "";
+      return `
+        <article class="ocr-image-card" data-image-id="${image.id}">
+          <div class="ocr-image-header">
+            <img class="ocr-thumbnail" src="/api/ocr-drafts/${draft.id}/images/${image.id}" alt="OCR image ${image.position + 1}" />
+            <div>
+              <div class="history-item-title">Image ${image.position + 1}</div>
+              <div class="history-item-meta">${escapeHtml(image.status)} ${escapeHtml(image.original_filename || "")}</div>
+              ${error}
+            </div>
+            <button class="danger-action compact-action" type="button" data-action="delete-image" data-image-id="${image.id}">Remove</button>
+          </div>
+          <textarea class="ocr-image-text" data-image-id="${image.id}" rows="7" aria-label="Reviewed OCR text for image ${image.position + 1}">${escapeHtml(image.extracted_text || "")}</textarea>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function collectOcrImageUpdates() {
+  return Array.from(ocrReviewList.querySelectorAll(".ocr-image-text")).map((textarea) => ({
+    id: Number(textarea.dataset.imageId),
+    extracted_text: textarea.value,
+  }));
+}
+
+function hasReviewedOcrText() {
+  return collectOcrImageUpdates().some((image) => image.extracted_text.trim());
+}
+
+function updateGenerateOcrAudioState() {
+  generateOcrAudioButton.disabled = !state.currentOcrDraftId || !hasReviewedOcrText();
 }
 
 async function loadOcrDrafts() {
@@ -430,7 +475,8 @@ function renderOcrDrafts() {
   ocrDraftsList.innerHTML = state.ocrDrafts
     .map((draft) => {
       const created = draft.created_at ? new Date(`${draft.created_at}Z`).toLocaleString() : "";
-      const preview = draft.extracted_text || draft.error || draft.original_filename || "Image draft";
+      const filenames = (draft.images || []).map((image) => image.original_filename).filter(Boolean).join(", ");
+      const preview = draft.extracted_text || draft.error || filenames || "Image draft";
       const generationButton = draft.linked_generation_id
         ? `<button class="secondary-action compact-action" type="button" data-action="open-generation" data-generation-id="${draft.linked_generation_id}">Open audio</button>`
         : "";
@@ -451,13 +497,15 @@ function renderOcrDrafts() {
 }
 
 async function extractImageText() {
-  const image = imageInput.files?.[0];
-  if (!image) {
+  const images = Array.from(imageInput.files || []);
+  if (images.length === 0) {
     return;
   }
   stopPlayback();
   const formData = new FormData();
-  formData.append("image", image);
+  images.forEach((image) => {
+    formData.append("image", image);
+  });
   formData.append("language", currentLanguage());
   playerStatus.textContent = "Extracting image text";
   try {
@@ -505,8 +553,9 @@ async function deleteOcrDraft(draftId) {
     }
     if (state.currentOcrDraftId === draftId) {
       state.currentOcrDraftId = null;
-      ocrReviewText.value = "";
-      ocrReviewText.classList.add("hidden");
+      state.currentOcrDraft = null;
+      ocrReviewList.innerHTML = "";
+      ocrReviewList.classList.add("hidden");
       generateOcrAudioButton.classList.add("hidden");
     }
     await loadOcrDrafts();
@@ -516,18 +565,18 @@ async function deleteOcrDraft(draftId) {
 }
 
 async function generateOcrAudio() {
-  if (!state.currentOcrDraftId || !ocrReviewText.value.trim()) {
+  if (!state.currentOcrDraftId || !hasReviewedOcrText()) {
     return;
   }
   stopPlayback();
   state.autoplay = autoplayInput.checked;
   const language = currentLanguage();
-  const text = ocrReviewText.value.trim();
+  const images = collectOcrImageUpdates();
   try {
     const update = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ language, extracted_text: text }),
+      body: JSON.stringify({ language, images }),
     });
     if (!update.ok) {
       const error = await update.json();
@@ -538,7 +587,6 @@ async function generateOcrAudio() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text,
         voice: voiceSelect.value,
         speed: Number(speedSelect.value || "1"),
         language,
@@ -555,6 +603,23 @@ async function generateOcrAudio() {
     await openGeneration(result.generation_id, { subscribe: true, autoplay: state.autoplay });
   } catch {
     playerStatus.textContent = "Image audio generation failed";
+  }
+}
+
+async function deleteOcrDraftImage(draftId, imageId) {
+  if (!window.confirm("Remove this image from the draft?")) {
+    return;
+  }
+  try {
+    const response = await fetch(`/api/ocr-drafts/${draftId}/images/${imageId}`, { method: "DELETE" });
+    if (!response.ok) {
+      playerStatus.textContent = "Unable to remove image";
+      return;
+    }
+    await openOcrDraft(draftId);
+    await loadOcrDrafts();
+  } catch {
+    playerStatus.textContent = "Unable to remove image";
   }
 }
 
@@ -846,6 +911,16 @@ ocrDraftsList.addEventListener("click", (event) => {
   if (action.dataset.action === "open-draft") {
     openOcrDraft(draftId);
   }
+});
+
+ocrReviewList.addEventListener("input", updateGenerateOcrAudioState);
+
+ocrReviewList.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-action]");
+  if (!action || action.dataset.action !== "delete-image" || !state.currentOcrDraftId) {
+    return;
+  }
+  deleteOcrDraftImage(state.currentOcrDraftId, Number(action.dataset.imageId));
 });
 
 readingPane.addEventListener("click", (event) => {

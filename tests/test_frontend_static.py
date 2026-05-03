@@ -52,7 +52,8 @@ def test_frontend_has_image_input_controls():
     assert 'id="image-mode"' in html
     assert 'id="image-input"' in html
     assert 'accept="image/*"' in html
-    assert 'id="ocr-review-text"' in html
+    assert "multiple" in html
+    assert 'id="ocr-review-list"' in html
     assert 'id="ocr-drafts-list"' in html
 
 
@@ -68,9 +69,12 @@ def test_frontend_javascript_uses_ocr_draft_endpoints():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 
     assert "/api/ocr-drafts" in js
+    assert "/images/" in js
     assert "FormData" in js
-    assert "ocr-review-text" in js
+    assert "ocr-review-list" in js
     assert "/generation" in js
+    assert "imageInput.files" in js
+    assert "forEach((image)" in js
 
 
 def test_frontend_refreshes_ocr_drafts_after_upload_error():
@@ -79,6 +83,16 @@ def test_frontend_refreshes_ocr_drafts_after_upload_error():
     error_branch = extractor.split("if (!response.ok)", 1)[1].split("return;", 1)[0]
 
     assert "await loadOcrDrafts()" in error_branch
+
+
+def test_frontend_renders_thumbnails_and_per_image_review_controls():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    renderer = js.split("function renderOcrReview()", 1)[1].split("async function loadOcrDrafts()", 1)[0]
+
+    assert "ocr-thumbnail" in renderer
+    assert "data-image-id" in renderer
+    assert "data-action=\"delete-image\"" in renderer
+    assert "ocr-image-text" in renderer
 
 
 def test_frontend_voice_sample_marks_sample_playback_state():

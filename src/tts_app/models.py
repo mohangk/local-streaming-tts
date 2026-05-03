@@ -5,7 +5,7 @@ from typing import Literal
 
 SourceType = Literal["text", "url", "image"]
 Language = Literal["en", "zh"]
-Status = Literal["queued", "running", "completed", "failed"]
+Status = Literal["queued", "running", "completed", "partial_failed", "failed"]
 
 
 @dataclass(frozen=True)

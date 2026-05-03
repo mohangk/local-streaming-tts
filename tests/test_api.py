@@ -291,20 +291,40 @@ def test_voice_sample_uses_chinese_script(test_settings, monkeypatch):
     assert options.language == "Chinese"
 
 
-def test_create_ocr_draft_stores_image_and_returns_text(test_settings):
+def test_create_ocr_draft_stores_images_and_returns_ordered_text(test_settings):
     client = TestClient(create_app(test_settings, run_background_inline=True))
 
     response = client.post(
         "/api/ocr-drafts",
         data={"language": "zh"},
-        files={"image": ("page.png", b"fake-image", "image/png")},
+        files=[
+            ("image", ("page-1.png", b"fake-image-one", "image/png")),
+            ("image", ("page-2.jpg", b"fake-image-two", "image/jpeg")),
+        ],
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["language"] == "zh"
+    assert body["status"] == "completed"
+    assert [image["position"] for image in body["images"]] == [0, 1]
+    assert all("Fake OCR text" in image["extracted_text"] for image in body["images"])
     assert "Fake OCR text" in body["extracted_text"]
-    assert (test_settings.data_dir / body["image_path"]).exists()
+    assert all((test_settings.data_dir / image["image_path"]).exists() for image in body["images"])
+
+
+def test_create_ocr_draft_still_accepts_single_image(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["images"]) == 1
+    assert body["image_path"] == body["images"][0]["image_path"]
 
 
 def test_create_ocr_draft_rejects_non_image_upload(test_settings):
@@ -341,6 +361,38 @@ def test_create_ocr_draft_rejects_too_large_upload(test_settings):
     assert response.status_code == 413
 
 
+def test_partial_ocr_failure_keeps_successful_image_text(test_settings, monkeypatch):
+    class PartiallyFailingOCRProvider:
+        name = "partial-ocr"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def extract_text(self, image: bytes, mime_type: str, options: OCROptions) -> str:
+            self.calls += 1
+            if self.calls == 2:
+                raise OCRProviderError("second page failed")
+            return f"Page {self.calls} text"
+
+    monkeypatch.setattr("tts_app.api.get_ocr_provider", lambda settings: PartiallyFailingOCRProvider())
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/ocr-drafts",
+        files=[
+            ("image", ("page-1.png", b"fake-image-one", "image/png")),
+            ("image", ("page-2.png", b"fake-image-two", "image/png")),
+        ],
+    )
+
+    assert response.status_code == 200
+    draft = response.json()
+    assert draft["status"] == "partial_failed"
+    assert [image["status"] for image in draft["images"]] == ["completed", "failed"]
+    assert draft["images"][0]["extracted_text"] == "Page 1 text"
+    assert draft["images"][1]["error"] == "second page failed"
+
+
 def test_failed_ocr_draft_keeps_real_image_path(test_settings, monkeypatch):
     monkeypatch.setattr("tts_app.api.get_ocr_provider", lambda settings: FailingOCRProvider())
     client = TestClient(create_app(test_settings, run_background_inline=True))
@@ -350,12 +402,12 @@ def test_failed_ocr_draft_keeps_real_image_path(test_settings, monkeypatch):
         files={"image": ("page.png", b"fake-image", "image/png")},
     )
 
-    assert response.status_code == 502
+    assert response.status_code == 200
     draft = client.get("/api/ocr-drafts").json()[0]
     assert draft["status"] == "failed"
-    assert draft["error"] == "ocr unavailable"
-    assert draft["image_path"] == f"images/{draft['id']}/source.png"
-    assert (test_settings.data_dir / draft["image_path"]).exists()
+    assert draft["images"][0]["error"] == "ocr unavailable"
+    assert draft["images"][0]["image_path"] == f"images/{draft['id']}/{draft['images'][0]['id']}/source.png"
+    assert (test_settings.data_dir / draft["images"][0]["image_path"]).exists()
 
 
 def test_empty_ocr_draft_is_failed_with_real_image_path(test_settings, monkeypatch):
@@ -367,14 +419,12 @@ def test_empty_ocr_draft_is_failed_with_real_image_path(test_settings, monkeypat
         files={"image": ("page.png", b"fake-image", "image/png")},
     )
 
-    assert response.status_code == 422
-    assert response.json()["detail"] == "OCR returned no visible text"
+    assert response.status_code == 200
     draft = client.get("/api/ocr-drafts").json()[0]
     assert draft["status"] == "failed"
-    assert draft["error"] == "OCR returned no visible text"
+    assert draft["images"][0]["error"] == "OCR returned no visible text"
     assert draft["extracted_text"] == ""
-    assert draft["image_path"] == f"images/{draft['id']}/source.png"
-    assert (test_settings.data_dir / draft["image_path"]).exists()
+    assert (test_settings.data_dir / draft["images"][0]["image_path"]).exists()
 
 
 def test_delete_unlinked_ocr_draft_removes_image_directory(test_settings):
@@ -383,7 +433,7 @@ def test_delete_unlinked_ocr_draft_removes_image_directory(test_settings):
         "/api/ocr-drafts",
         files={"image": ("page.png", b"fake-image", "image/png")},
     ).json()
-    image_path = test_settings.data_dir / draft["image_path"]
+    image_path = test_settings.data_dir / draft["images"][0]["image_path"]
 
     response = client.delete(f"/api/ocr-drafts/{draft['id']}")
 
@@ -400,12 +450,15 @@ def test_update_ocr_draft_and_create_generation(test_settings):
         files={"image": ("page.png", b"fake-image", "image/png")},
     ).json()
 
-    update = client.put(f"/api/ocr-drafts/{draft['id']}", json={"language": "en", "extracted_text": "Reviewed text."})
+    update = client.put(
+        f"/api/ocr-drafts/{draft['id']}",
+        json={"language": "en", "images": [{"id": draft["images"][0]["id"], "extracted_text": "Reviewed text."}]},
+    )
     assert update.status_code == 200
 
     generation = client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
-        json={"text": "Wrong text.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+        json={"voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
     )
 
     assert generation.status_code == 200
@@ -413,6 +466,73 @@ def test_update_ocr_draft_and_create_generation(test_settings):
     assert detail["generation"]["source_type"] == "image"
     assert detail["generation"]["full_text"] == "Reviewed text."
     assert detail["generation"]["settings"]["ocr_draft_id"] == draft["id"]
+
+
+def test_ocr_generation_combines_non_empty_image_text_in_order(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files=[
+            ("image", ("page-1.png", b"fake-image-one", "image/png")),
+            ("image", ("page-2.png", b"fake-image-two", "image/png")),
+            ("image", ("page-3.png", b"fake-image-three", "image/png")),
+        ],
+    ).json()
+    client.put(
+        f"/api/ocr-drafts/{draft['id']}",
+        json={
+            "language": "en",
+            "images": [
+                {"id": draft["images"][0]["id"], "extracted_text": "First page."},
+                {"id": draft["images"][1]["id"], "extracted_text": ""},
+                {"id": draft["images"][2]["id"], "extracted_text": "Third page."},
+            ],
+        },
+    )
+
+    generation = client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={"voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+    )
+
+    assert generation.status_code == 200
+    detail = client.get(f"/api/generations/{generation.json()['generation_id']}").json()
+    assert detail["generation"]["full_text"] == "First page.\n\nThird page."
+
+
+def test_ocr_image_endpoint_serves_stored_image(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+    image = draft["images"][0]
+
+    response = client.get(f"/api/ocr-drafts/{draft['id']}/images/{image['id']}")
+
+    assert response.status_code == 200
+    assert response.content == b"fake-image"
+    assert response.headers["content-type"].startswith("image/")
+
+
+def test_delete_ocr_draft_image_removes_file(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files=[
+            ("image", ("page-1.png", b"fake-image-one", "image/png")),
+            ("image", ("page-2.png", b"fake-image-two", "image/png")),
+        ],
+    ).json()
+    deleted_path = test_settings.data_dir / draft["images"][0]["image_path"]
+
+    response = client.delete(f"/api/ocr-drafts/{draft['id']}/images/{draft['images'][0]['id']}")
+
+    assert response.status_code == 204
+    assert not deleted_path.exists()
+    updated = client.get(f"/api/ocr-drafts/{draft['id']}").json()
+    assert len(updated["images"]) == 1
+    assert updated["images"][0]["position"] == 0
 
 
 def test_image_generation_passes_selected_language_to_tts_provider(test_settings, monkeypatch):
@@ -427,7 +547,7 @@ def test_image_generation_passes_selected_language_to_tts_provider(test_settings
 
     response = client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
-        json={"text": "Ignored.", "voice": "Cherry", "speed": 1.0, "language": "zh", "autoplay": True},
+        json={"voice": "Cherry", "speed": 1.0, "language": "zh", "autoplay": True},
     )
 
     assert response.status_code == 200
@@ -443,13 +563,13 @@ def test_generation_from_already_linked_ocr_draft_is_rejected(test_settings):
     ).json()
     client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
-        json={"text": "Ignored.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+        json={"voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
     )
     generation_count = len(client.get("/api/generations").json())
 
     response = client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
-        json={"text": "Ignored again.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+        json={"voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
     )
 
     assert response.status_code == 409
@@ -467,15 +587,18 @@ def test_failed_ocr_draft_generation_is_rejected_until_reviewed(test_settings, m
 
     failed_generation = client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
-        json={"text": "Ignored.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+        json={"voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
     )
-    update = client.put(f"/api/ocr-drafts/{draft['id']}", json={"language": "en", "extracted_text": "Reviewed text."})
+    update = client.put(
+        f"/api/ocr-drafts/{draft['id']}",
+        json={"language": "en", "images": [{"id": draft["images"][0]["id"], "extracted_text": "Reviewed text."}]},
+    )
     reviewed_generation = client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
-        json={"text": "Ignored.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+        json={"voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
     )
 
-    assert failed_generation.status_code == 409
+    assert failed_generation.status_code == 400
     assert update.status_code == 200
     assert update.json()["status"] == "completed"
     assert update.json()["error"] is None
@@ -491,7 +614,7 @@ def test_delete_linked_ocr_draft_is_rejected_by_api(test_settings):
     ).json()
     client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
-        json={"text": "Reviewed text.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+        json={"voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
     )
 
     response = client.delete(f"/api/ocr-drafts/{draft['id']}")
@@ -687,10 +810,10 @@ def test_delete_image_generation_removes_linked_ocr_draft_and_image(test_setting
         data={"language": "en"},
         files={"image": ("page.png", b"fake-image", "image/png")},
     ).json()
-    image_path = test_settings.data_dir / draft["image_path"]
+    image_path = test_settings.data_dir / draft["images"][0]["image_path"]
     generation_id = client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
-        json={"text": "Reviewed text.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+        json={"voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
     ).json()["generation_id"]
 
     response = client.delete(f"/api/generations/{generation_id}")

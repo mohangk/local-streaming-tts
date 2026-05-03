@@ -64,13 +64,18 @@ class VoiceSampleRequest(BaseModel):
     language: str = "en"
 
 
-class OcrDraftUpdateRequest(BaseModel):
-    language: str
+class OcrDraftImageUpdate(BaseModel):
+    id: int
     extracted_text: str
 
 
+class OcrDraftUpdateRequest(BaseModel):
+    language: str
+    images: list[OcrDraftImageUpdate] = Field(default_factory=list)
+    extracted_text: str | None = None
+
+
 class OcrDraftGenerationRequest(BaseModel):
-    text: str = Field(min_length=1)
     voice: str | None = None
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     language: str = "en"
@@ -183,79 +188,82 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
         return StreamingResponse(stream(), media_type="audio/mpeg")
 
     @app.post("/api/ocr-drafts")
-    async def create_ocr_draft(image: UploadFile = File(...), language: str = Form("en")):
+    async def create_ocr_draft(image: list[UploadFile] = File(...), language: str = Form("en")):
         _validate_ocr_language(language)
-        mime_type = image.content_type or "application/octet-stream"
-        if not mime_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="uploaded file must be an image")
-
-        image_bytes = await image.read(active_settings.max_image_bytes + 1)
-        if not image_bytes:
-            raise HTTPException(status_code=400, detail="uploaded image is empty")
-        if len(image_bytes) > active_settings.max_image_bytes:
-            raise HTTPException(status_code=413, detail="uploaded image is too large")
-
-        extension = _image_extension(image.filename)
-        pending_path = f"images/pending/source{extension}"
+        uploads = await _read_ocr_uploads(image, active_settings.max_image_bytes)
         draft_id = storage.create_ocr_draft(
-            image_path=pending_path,
-            original_filename=image.filename,
-            mime_type=mime_type,
-            byte_size=len(image_bytes),
             ocr_model=ocr_provider.name,
             language=language,
-            extracted_text="",
             status="running",
         )
-        relative_image_path = f"images/{draft_id}/source{extension}"
-        image_path = active_settings.image_dir / str(draft_id) / f"source{extension}"
-        image_path.parent.mkdir(parents=True, exist_ok=True)
-        image_path.write_bytes(image_bytes)
 
-        try:
-            extracted_text = await ocr_provider.extract_text(
-                image_bytes,
-                mime_type,
-                OCROptions(language=language, model=active_settings.ocr_model),
-            )
-        except OCRProviderError as exc:
-            storage.update_ocr_draft_ocr_result(
+        for position, upload in enumerate(uploads):
+            extension = _image_extension(upload["filename"])
+            image_id = storage.create_ocr_draft_image(
                 draft_id,
-                image_path=relative_image_path,
+                position=position,
+                image_path=f"images/{draft_id}/pending-{position}{extension}",
+                original_filename=upload["filename"],
+                mime_type=upload["mime_type"],
+                byte_size=len(upload["bytes"]),
                 extracted_text="",
-                status="failed",
-                error=str(exc),
+                status="running",
             )
-            logger.warning("ocr_draft_failed draft_id=%s error=%s", draft_id, exc)
-            raise HTTPException(status_code=502, detail=f"OCR failed: {exc}") from exc
+            relative_image_path = f"images/{draft_id}/{image_id}/source{extension}"
+            image_path = active_settings.image_dir / str(draft_id) / str(image_id) / f"source{extension}"
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            image_path.write_bytes(upload["bytes"])
 
-        if not extracted_text.strip():
-            error = "OCR returned no visible text"
-            storage.update_ocr_draft_ocr_result(
+            try:
+                extracted_text = await ocr_provider.extract_text(
+                    upload["bytes"],
+                    upload["mime_type"],
+                    OCROptions(language=language, model=active_settings.ocr_model),
+                )
+            except OCRProviderError as exc:
+                storage.update_ocr_draft_image_ocr_result(
+                    draft_id,
+                    image_id,
+                    image_path=relative_image_path,
+                    extracted_text="",
+                    status="failed",
+                    error=str(exc),
+                )
+                logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, exc)
+                continue
+
+            if not extracted_text.strip():
+                error = "OCR returned no visible text"
+                storage.update_ocr_draft_image_ocr_result(
+                    draft_id,
+                    image_id,
+                    image_path=relative_image_path,
+                    extracted_text="",
+                    status="failed",
+                    error=error,
+                )
+                logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, error)
+                continue
+
+            storage.update_ocr_draft_image_ocr_result(
                 draft_id,
+                image_id,
                 image_path=relative_image_path,
-                extracted_text="",
-                status="failed",
-                error=error,
+                extracted_text=extracted_text,
+                status="completed",
+                error=None,
             )
-            logger.warning("ocr_draft_failed draft_id=%s error=%s", draft_id, error)
-            raise HTTPException(status_code=422, detail=error)
 
-        storage.update_ocr_draft_ocr_result(
-            draft_id,
-            image_path=relative_image_path,
-            extracted_text=extracted_text,
-            status="completed",
-            error=None,
-        )
+        draft = storage.get_ocr_draft(draft_id)
         logger.info(
-            "ocr_draft_created draft_id=%s language=%s image_bytes=%s text_chars=%s",
+            "ocr_draft_created draft_id=%s language=%s image_count=%s text_chars=%s status=%s",
             draft_id,
             language,
-            len(image_bytes),
-            len(extracted_text),
+            len(draft["images"]),
+            len(draft["extracted_text"]),
+            draft["status"],
         )
-        return storage.get_ocr_draft(draft_id)
+        return draft
 
     @app.get("/api/ocr-drafts")
     async def list_ocr_drafts():
@@ -268,22 +276,41 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="ocr draft not found") from exc
 
+    @app.get("/api/ocr-drafts/{draft_id}/images/{image_id}")
+    async def get_ocr_draft_image(draft_id: int, image_id: int):
+        try:
+            image = storage.get_ocr_draft_image(draft_id, image_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="ocr draft image not found") from exc
+        path = active_settings.data_dir / image["image_path"]
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="ocr draft image file not found")
+        return FileResponse(path, media_type=image["mime_type"], stat_result=path.stat())
+
     @app.put("/api/ocr-drafts/{draft_id}")
     async def update_ocr_draft(draft_id: int, payload: OcrDraftUpdateRequest):
         _validate_ocr_language(payload.language)
         try:
             draft = storage.get_ocr_draft(draft_id)
-            storage.update_ocr_draft(draft_id, extracted_text=payload.extracted_text, language=payload.language)
-            storage.update_ocr_draft_ocr_result(
-                draft_id,
-                image_path=draft["image_path"],
-                extracted_text=payload.extracted_text,
-                status="completed",
-                error=None,
-            )
+            image_texts = {item.id: item.extracted_text for item in payload.images}
+            if payload.extracted_text is not None and draft["images"] and not image_texts:
+                image_texts[int(draft["images"][0]["id"])] = payload.extracted_text
+            storage.update_ocr_draft(draft_id, language=payload.language, image_texts=image_texts)
             return storage.get_ocr_draft(draft_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="ocr draft not found") from exc
+
+    @app.delete("/api/ocr-drafts/{draft_id}/images/{image_id}", status_code=204)
+    async def delete_ocr_draft_image(draft_id: int, image_id: int):
+        try:
+            image = storage.delete_ocr_draft_image(draft_id, image_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="ocr draft image not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        shutil.rmtree((active_settings.data_dir / image["image_path"]).parent, ignore_errors=True)
+        logger.info("ocr_draft_image_deleted draft_id=%s image_id=%s", draft_id, image_id)
+        return Response(status_code=204)
 
     @app.delete("/api/ocr-drafts/{draft_id}", status_code=204)
     async def delete_ocr_draft(draft_id: int):
@@ -309,11 +336,9 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="ocr draft not found") from exc
 
-        if draft["status"] != "completed":
-            raise HTTPException(status_code=409, detail="ocr draft is not completed")
         if draft["linked_generation_id"] is not None:
             raise HTTPException(status_code=409, detail="ocr draft is already linked to a generation")
-        reviewed_text = str(draft["extracted_text"])
+        reviewed_text = str(draft["extracted_text"]).strip()
         if not reviewed_text.strip():
             raise HTTPException(status_code=400, detail="ocr draft text is empty")
         voice = payload.voice or _default_voice_for_language(active_settings, payload.language)
@@ -532,6 +557,23 @@ def _default_voice_for_language(settings: Settings, language: str) -> str:
 
 def _tts_language_for_ocr_language(language: str) -> str:
     return SAMPLE_LANGUAGES.get(language, "Auto")
+
+
+async def _read_ocr_uploads(images: list[UploadFile], max_image_bytes: int) -> list[dict[str, bytes | str | None]]:
+    if not images:
+        raise HTTPException(status_code=400, detail="uploaded image is required")
+    uploads: list[dict[str, bytes | str | None]] = []
+    for image in images:
+        mime_type = image.content_type or "application/octet-stream"
+        if not mime_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="uploaded file must be an image")
+        image_bytes = await image.read(max_image_bytes + 1)
+        if not image_bytes:
+            raise HTTPException(status_code=400, detail="uploaded image is empty")
+        if len(image_bytes) > max_image_bytes:
+            raise HTTPException(status_code=413, detail="uploaded image is too large")
+        uploads.append({"filename": image.filename, "mime_type": mime_type, "bytes": image_bytes})
+    return uploads
 
 
 def _image_extension(filename: str | None) -> str:

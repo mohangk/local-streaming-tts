@@ -410,38 +410,57 @@ def test_updating_missing_text_segment_raises_key_error(test_settings):
         storage.update_text_segment_status(999, "completed")
 
 
-def test_ocr_draft_round_trip(test_settings):
+def test_ocr_draft_round_trip_with_ordered_images(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
 
     draft_id = storage.create_ocr_draft(
-        image_path="images/1/source.jpg",
-        original_filename="page.jpg",
-        mime_type="image/jpeg",
-        byte_size=123,
         ocr_model="qwen-vl-ocr",
         language="zh",
-        extracted_text="你好\nni hao",
+        status="completed",
+    )
+    first_image_id = storage.create_ocr_draft_image(
+        draft_id,
+        position=0,
+        image_path="images/1/1/source.jpg",
+        original_filename="page-1.jpg",
+        mime_type="image/jpeg",
+        byte_size=123,
+        extracted_text="你好",
+        status="completed",
+    )
+    second_image_id = storage.create_ocr_draft_image(
+        draft_id,
+        position=1,
+        image_path="images/1/2/source.jpg",
+        original_filename="page-2.jpg",
+        mime_type="image/jpeg",
+        byte_size=456,
+        extracted_text="ni hao",
         status="completed",
     )
 
     draft = storage.get_ocr_draft(draft_id)
     assert draft["id"] == draft_id
-    assert draft["image_path"] == "images/1/source.jpg"
     assert draft["language"] == "zh"
-    assert draft["extracted_text"] == "你好\nni hao"
+    assert [image["id"] for image in draft["images"]] == [first_image_id, second_image_id]
+    assert [image["extracted_text"] for image in draft["images"]] == ["你好", "ni hao"]
+    assert draft["extracted_text"] == "你好\n\nni hao"
     assert storage.list_ocr_drafts()[0]["id"] == draft_id
 
 
-def test_update_ocr_draft_text_and_language(test_settings):
+def test_update_ocr_draft_image_text_and_language(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "raw", "completed")
+    draft_id = storage.create_ocr_draft("fake-ocr", "en", "completed")
+    image_id = storage.create_ocr_draft_image(
+        draft_id, 0, "images/1/1/source.png", None, "image/png", 10, "raw", "completed"
+    )
 
-    storage.update_ocr_draft(draft_id, extracted_text="reviewed text", language="zh")
+    storage.update_ocr_draft(draft_id, language="zh", image_texts={image_id: "reviewed text"})
 
     draft = storage.get_ocr_draft(draft_id)
-    assert draft["extracted_text"] == "reviewed text"
+    assert draft["images"][0]["extracted_text"] == "reviewed text"
     assert draft["language"] == "zh"
 
 
@@ -516,29 +535,44 @@ def test_init_schema_migrates_existing_ocr_draft_language_check(test_settings):
             conn.execute(
                 """
                 INSERT INTO ocr_drafts
-                    (image_path, original_filename, mime_type, byte_size, ocr_model, language, extracted_text, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (ocr_model, language, status)
+                VALUES (?, ?, ?)
                 """,
-                ("images/3/source.png", "invalid-again.png", "image/png", 14, "fake-ocr", "fr", "invalid again", "completed"),
+                ("fake-ocr", "fr", "completed"),
             )
 
 
 def test_invalid_ocr_draft_language_is_rejected(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "raw", "completed")
+    draft_id = storage.create_ocr_draft("fake-ocr", "en", "completed")
 
     with pytest.raises(ValueError, match="ocr draft language must be en or zh"):
-        storage.create_ocr_draft("images/2/source.png", None, "image/png", 10, "fake-ocr", "fr", "raw", "completed")
+        storage.create_ocr_draft("fake-ocr", "fr", "completed")
 
     with pytest.raises(ValueError, match="ocr draft language must be en or zh"):
-        storage.update_ocr_draft(draft_id, extracted_text="reviewed text", language="fr")
+        storage.update_ocr_draft(draft_id, language="fr", image_texts={})
+
+
+def test_delete_ocr_draft_image_reorders_remaining_images(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    draft_id = storage.create_ocr_draft("fake-ocr", "en", "completed")
+    first_id = storage.create_ocr_draft_image(draft_id, 0, "images/1/1/source.png", None, "image/png", 10, "one", "completed")
+    second_id = storage.create_ocr_draft_image(draft_id, 1, "images/1/2/source.png", None, "image/png", 10, "two", "completed")
+
+    deleted = storage.delete_ocr_draft_image(draft_id, first_id)
+
+    draft = storage.get_ocr_draft(draft_id)
+    assert deleted["id"] == first_id
+    assert [(image["id"], image["position"]) for image in draft["images"]] == [(second_id, 0)]
 
 
 def test_delete_unlinked_ocr_draft(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "text", "completed")
+    draft_id = storage.create_ocr_draft("fake-ocr", "en", "completed")
+    storage.create_ocr_draft_image(draft_id, 0, "images/1/1/source.png", None, "image/png", 10, "text", "completed")
 
     storage.delete_ocr_draft(draft_id)
 
@@ -549,7 +583,7 @@ def test_delete_unlinked_ocr_draft(test_settings):
 def test_delete_linked_ocr_draft_is_blocked(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "text", "completed")
+    draft_id = storage.create_ocr_draft("fake-ocr", "en", "completed")
     generation_id = storage.create_generation("image", "Image text", None, "text", "fake", "Test", {"ocr_draft_id": draft_id})
     storage.link_ocr_draft_generation(draft_id, generation_id)
 
@@ -560,10 +594,8 @@ def test_delete_linked_ocr_draft_is_blocked(test_settings):
 def test_one_ocr_draft_can_link_to_a_generation(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    first_draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "text", "completed")
-    second_draft_id = storage.create_ocr_draft(
-        "images/2/source.png", None, "image/png", 10, "fake-ocr", "en", "other text", "completed"
-    )
+    first_draft_id = storage.create_ocr_draft("fake-ocr", "en", "completed")
+    second_draft_id = storage.create_ocr_draft("fake-ocr", "en", "completed")
     generation_id = storage.create_generation("image", "Image text", None, "text", "fake", "Test", {"ocr_draft_id": first_draft_id})
     storage.link_ocr_draft_generation(first_draft_id, generation_id)
 
@@ -574,7 +606,7 @@ def test_one_ocr_draft_can_link_to_a_generation(test_settings):
 def test_link_ocr_draft_generation_rejects_second_link_without_overwriting(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "text", "completed")
+    draft_id = storage.create_ocr_draft("fake-ocr", "en", "completed")
     first_generation_id = storage.create_generation(
         "image", "Image text", None, "text", "fake", "Test", {"ocr_draft_id": draft_id}
     )
