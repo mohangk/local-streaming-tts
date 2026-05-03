@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from tts_app.api import create_app
 from tts_app.extractor import ExtractedText
+from tts_app.ocr_providers.base import OCROptions, OCRProviderError
 from tts_app.providers.base import AudioChunk, TTSOptions
 
 
@@ -132,6 +133,13 @@ class CapturingTTSProvider:
         self.calls.append((text, options))
         yield AudioChunk(data=b"sample-", mime_type="audio/mpeg", extension="mp3")
         yield AudioChunk(data=b"audio", mime_type="audio/mpeg", extension="mp3")
+
+
+class FailingOCRProvider:
+    name = "failing-ocr"
+
+    async def extract_text(self, image: bytes, mime_type: str, options: OCROptions) -> str:
+        raise OCRProviderError("ocr unavailable")
 
 
 def test_submit_text_starts_generation_and_history_returns_item(test_settings):
@@ -290,6 +298,72 @@ def test_create_ocr_draft_stores_image_and_returns_text(test_settings):
     assert (test_settings.data_dir / body["image_path"]).exists()
 
 
+def test_create_ocr_draft_rejects_non_image_upload(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.txt", b"not an image", "text/plain")},
+    )
+
+    assert response.status_code == 400
+
+
+def test_create_ocr_draft_rejects_empty_upload(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"", "image/png")},
+    )
+
+    assert response.status_code == 400
+
+
+def test_create_ocr_draft_rejects_too_large_upload(test_settings):
+    settings = replace(test_settings, max_image_bytes=4)
+    client = TestClient(create_app(settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"12345", "image/png")},
+    )
+
+    assert response.status_code == 413
+
+
+def test_failed_ocr_draft_keeps_real_image_path(test_settings, monkeypatch):
+    monkeypatch.setattr("tts_app.api.get_ocr_provider", lambda settings: FailingOCRProvider())
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    )
+
+    assert response.status_code == 502
+    draft = client.get("/api/ocr-drafts").json()[0]
+    assert draft["status"] == "failed"
+    assert draft["error"] == "ocr unavailable"
+    assert draft["image_path"] == f"images/{draft['id']}/source.png"
+    assert (test_settings.data_dir / draft["image_path"]).exists()
+
+
+def test_delete_unlinked_ocr_draft_removes_image_directory(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+    image_path = test_settings.data_dir / draft["image_path"]
+
+    response = client.delete(f"/api/ocr-drafts/{draft['id']}")
+
+    assert response.status_code == 204
+    assert not image_path.exists()
+    assert not (test_settings.image_dir / str(draft["id"])).exists()
+
+
 def test_update_ocr_draft_and_create_generation(test_settings):
     client = TestClient(create_app(test_settings, run_background_inline=True))
     draft = client.post(
@@ -311,6 +385,51 @@ def test_update_ocr_draft_and_create_generation(test_settings):
     assert detail["generation"]["source_type"] == "image"
     assert detail["generation"]["full_text"] == "Reviewed text."
     assert detail["generation"]["settings"]["ocr_draft_id"] == draft["id"]
+
+
+def test_generation_from_already_linked_ocr_draft_is_rejected(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+    client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={"text": "Ignored.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+    )
+
+    response = client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={"text": "Ignored again.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+    )
+
+    assert response.status_code == 409
+
+
+def test_failed_ocr_draft_generation_is_rejected_until_reviewed(test_settings, monkeypatch):
+    monkeypatch.setattr("tts_app.api.get_ocr_provider", lambda settings: FailingOCRProvider())
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    )
+    draft = client.get("/api/ocr-drafts").json()[0]
+
+    failed_generation = client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={"text": "Ignored.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+    )
+    update = client.put(f"/api/ocr-drafts/{draft['id']}", json={"language": "en", "extracted_text": "Reviewed text."})
+    reviewed_generation = client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={"text": "Ignored.", "voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+    )
+
+    assert failed_generation.status_code == 409
+    assert update.status_code == 200
+    assert update.json()["status"] == "completed"
+    assert update.json()["error"] is None
+    assert reviewed_generation.status_code == 200
 
 
 def test_delete_linked_ocr_draft_is_rejected_by_api(test_settings):

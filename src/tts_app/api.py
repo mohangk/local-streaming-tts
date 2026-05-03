@@ -189,7 +189,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
         if not mime_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="uploaded file must be an image")
 
-        image_bytes = await image.read()
+        image_bytes = await image.read(active_settings.max_image_bytes + 1)
         if not image_bytes:
             raise HTTPException(status_code=400, detail="uploaded image is empty")
         if len(image_bytes) > active_settings.max_image_bytes:
@@ -219,7 +219,13 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
                 OCROptions(language=language, model=active_settings.qwen_ocr_model),
             )
         except OCRProviderError as exc:
-            storage.update_ocr_draft_status(draft_id, "failed", str(exc))
+            storage.update_ocr_draft_ocr_result(
+                draft_id,
+                image_path=relative_image_path,
+                extracted_text="",
+                status="failed",
+                error=str(exc),
+            )
             logger.warning("ocr_draft_failed draft_id=%s error=%s", draft_id, exc)
             raise HTTPException(status_code=502, detail=f"OCR failed: {exc}") from exc
 
@@ -254,7 +260,15 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     async def update_ocr_draft(draft_id: int, payload: OcrDraftUpdateRequest):
         _validate_ocr_language(payload.language)
         try:
+            draft = storage.get_ocr_draft(draft_id)
             storage.update_ocr_draft(draft_id, extracted_text=payload.extracted_text, language=payload.language)
+            storage.update_ocr_draft_ocr_result(
+                draft_id,
+                image_path=draft["image_path"],
+                extracted_text=payload.extracted_text,
+                status="completed",
+                error=None,
+            )
             return storage.get_ocr_draft(draft_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="ocr draft not found") from exc
@@ -283,6 +297,10 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="ocr draft not found") from exc
 
+        if draft["status"] != "completed":
+            raise HTTPException(status_code=409, detail="ocr draft is not completed")
+        if draft["linked_generation_id"] is not None:
+            raise HTTPException(status_code=409, detail="ocr draft is already linked to a generation")
         reviewed_text = str(draft["extracted_text"])
         if not reviewed_text.strip():
             raise HTTPException(status_code=400, detail="ocr draft text is empty")
