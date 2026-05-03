@@ -31,6 +31,7 @@ const generateForm = document.querySelector("#generate-form");
 const languageSelect = document.querySelector("#language-select");
 const voiceSelect = document.querySelector("#voice-select");
 const voiceStar = document.querySelector("#voice-star");
+const voiceSample = document.querySelector("#voice-sample");
 const speedSelect = document.querySelector("#speed-select");
 const autoplayInput = document.querySelector("#autoplay");
 const historySearch = document.querySelector("#history-search");

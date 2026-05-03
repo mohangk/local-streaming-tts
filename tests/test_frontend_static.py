@@ -58,6 +58,7 @@ def test_frontend_voice_sample_marks_sample_playback_state():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     sampler = js.split("async function playVoiceSample()", 1)[1].split("async function loadHistory()", 1)[0]
 
+    assert 'document.querySelector("#voice-sample")' in js
     assert "state.samplePlayback = true" in sampler
     assert "state.sampleObjectUrl = URL.createObjectURL(blob)" in sampler
     assert "audioPlayer.src = state.sampleObjectUrl" in sampler
