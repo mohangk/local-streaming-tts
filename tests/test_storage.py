@@ -372,3 +372,49 @@ def test_updating_missing_text_segment_raises_key_error(test_settings):
 
     with pytest.raises(KeyError, match="text segment 999 not found"):
         storage.update_text_segment_status(999, "completed")
+
+
+def test_voice_preference_round_trip(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+
+    storage.set_voice_preference("Cherry", "en", True)
+    assert storage.list_voice_preferences() == {("Cherry", "en"): True}
+
+    storage.set_voice_preference("Cherry", "en", False)
+    assert storage.list_voice_preferences() == {("Cherry", "en"): False}
+
+
+def test_voice_preferences_are_language_scoped(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+
+    storage.set_voice_preference("Cherry", "en", True)
+    storage.set_voice_preference("Cherry", "zh", False)
+
+    assert storage.list_voice_preferences() == {
+        ("Cherry", "en"): True,
+        ("Cherry", "zh"): False,
+    }
+
+
+def test_init_schema_migrates_voice_preferences_to_english(test_settings):
+    test_settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(test_settings.db_path)
+    conn.execute(
+        """
+        CREATE TABLE voice_preferences (
+            voice TEXT PRIMARY KEY,
+            preferred INTEGER NOT NULL DEFAULT 0 CHECK (preferred IN (0, 1)),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute("INSERT INTO voice_preferences (voice, preferred) VALUES (?, ?)", ("Cherry", 1))
+    conn.commit()
+    conn.close()
+
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+
+    assert storage.list_voice_preferences() == {("Cherry", "en"): True}

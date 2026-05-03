@@ -60,7 +60,13 @@ class GenerationService:
         await self.broker.publish(generation_id, {"type": "generation_created", "generation_id": generation_id})
         return generation_id
 
-    async def run_generation(self, generation_id: int, voice: str = "Test", speed: float = 1.0) -> None:
+    async def run_generation(
+        self,
+        generation_id: int,
+        voice: str = "Test",
+        speed: float = 1.0,
+        language: str = "Auto",
+    ) -> None:
         detail = self.storage.get_generation(generation_id)
         self.storage.update_generation_status(generation_id, "running")
         logger.info(
@@ -75,7 +81,7 @@ class GenerationService:
 
         try:
             for text_segment in detail["text_segments"]:
-                await self._run_segment(generation_id, text_segment, TTSOptions(voice=voice, speed=speed))
+                await self._run_segment(generation_id, text_segment, TTSOptions(voice=voice, speed=speed, language=language))
         except asyncio.CancelledError:
             raise
         except Exception as exc:

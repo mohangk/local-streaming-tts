@@ -16,7 +16,9 @@ def test_frontend_has_generate_history_and_playback_views():
     assert 'id="history-view"' in html
     assert 'id="playback-view"' in html
     assert 'id="autoplay"' in html
+    assert 'id="language-select"' in html
     assert 'id="voice-select"' in html
+    assert 'id="voice-star"' in html
     assert 'id="speed-select"' in html
 
 
@@ -29,8 +31,26 @@ def test_frontend_javascript_uses_history_and_event_endpoints():
     assert "/progress" in js
     assert "payload.voice" in js
     assert "payload.speed" in js
+    assert "payload.language" in js
     assert "EventSource" in js
     assert "scrollIntoView" in js
+
+
+def test_frontend_javascript_uses_language_scoped_voice_preferences():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "/preference" in js
+    assert "JSON.stringify({ preferred, language" in js
+    assert "option.language === voice.language" in js
+    assert "languageSelect.addEventListener(\"change\", renderOptions)" in js
+
+
+def test_frontend_does_not_seed_hard_coded_voice_options():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    initial_state = js.split("};", 1)[0]
+
+    assert "voices: []" in initial_state
+    assert "Cherry" not in initial_state
 
 
 def test_frontend_javascript_ended_handler_respects_continuous_playback():

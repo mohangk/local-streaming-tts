@@ -173,9 +173,54 @@ def test_options_returns_voice_and_speed_choices(test_settings):
 
     assert response.status_code == 200
     body = response.json()
+    assert body["default_language"] == "en"
+    assert body["default_voices"]["en"] == test_settings.qwen_voice
+    assert body["default_voices"]["zh"] == "Fake Chinese"
     assert body["default_voice"] == test_settings.qwen_voice
-    assert {"value": "Jennifer", "label": "Jennifer - American English female"} in body["voices"]
+    fake_english = next(voice for voice in body["voices"] if voice["value"] == "Fake English")
+    assert fake_english["language"] == "en"
+    assert fake_english["preferred"] is False
     assert {"value": 1.25, "label": "1.25x"} in body["speeds"]
+
+
+def test_options_keeps_duplicate_voice_preferences_language_scoped(test_settings):
+    settings = replace(test_settings, provider_name="qwen", qwen_api_key="key")
+    client = TestClient(create_app(settings, run_background_inline=True))
+    client.put("/api/voices/Cherry/preference", json={"preferred": True, "language": "en"})
+
+    response = client.get("/api/options")
+
+    assert response.status_code == 200
+    cherry_entries = [voice for voice in response.json()["voices"] if voice["value"] == "Cherry"]
+    assert {voice["language"] for voice in cherry_entries} == {"en", "zh"}
+    assert next(voice for voice in cherry_entries if voice["language"] == "en")["preferred"] is True
+    assert next(voice for voice in cherry_entries if voice["language"] == "zh")["preferred"] is False
+
+
+def test_options_lists_multilingual_qwen_voices_for_chinese(test_settings):
+    settings = replace(test_settings, provider_name="qwen", qwen_api_key="key")
+    client = TestClient(create_app(settings, run_background_inline=True))
+
+    response = client.get("/api/options")
+
+    assert response.status_code == 200
+    voices = response.json()["voices"]
+    assert any(voice["value"] == "Jennifer" and voice["language"] == "zh" for voice in voices)
+    assert any(voice["value"] == "Aiden" and voice["language"] == "zh" for voice in voices)
+
+
+def test_voice_preference_endpoint_updates_preference(test_settings):
+    settings = replace(test_settings, provider_name="qwen", qwen_api_key="key")
+    client = TestClient(create_app(settings, run_background_inline=True))
+
+    response = client.put("/api/voices/Jennifer/preference", json={"preferred": True, "language": "en"})
+
+    assert response.status_code == 200
+    assert response.json() == {"voice": "Jennifer", "language": "en", "preferred": True}
+    options = client.get("/api/options").json()
+    assert next(
+        voice for voice in options["voices"] if voice["value"] == "Jennifer" and voice["language"] == "en"
+    )["preferred"] is True
 
 
 def test_submit_text_preserves_explicit_voice(test_settings):
@@ -204,6 +249,20 @@ def test_submit_text_persists_selected_speed(test_settings):
     detail = client.get(f"/api/generations/{generation_id}").json()
 
     assert detail["generation"]["settings"]["speed"] == 1.25
+
+
+def test_submit_text_persists_selected_language(test_settings):
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    generation_id = client.post(
+        "/api/generations/text",
+        json={"text": "你好。", "title": "Note", "voice": "Cherry", "language": "zh"},
+    ).json()["generation_id"]
+
+    detail = client.get(f"/api/generations/{generation_id}").json()
+
+    assert detail["generation"]["settings"]["language"] == "zh"
 
 
 def test_submit_text_rejects_invalid_speed(test_settings):

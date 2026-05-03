@@ -10,14 +10,15 @@ from urllib.parse import urlencode
 import websockets
 
 from tts_app.providers.base import AudioChunk, ProviderError, TTSOptions
-from tts_app.providers.options import QWEN_ENGLISH_VOICES, SPEED_OPTIONS
+from tts_app.providers.options import QWEN_CHINESE_VOICES, QWEN_ENGLISH_VOICES, SPEED_OPTIONS
 
 QwenConnect = Callable[..., Awaitable[object]]
 
 
 class QwenTTSProvider:
     name = "qwen"
-    voice_options = QWEN_ENGLISH_VOICES
+    english_voices = QWEN_ENGLISH_VOICES
+    chinese_voices = QWEN_CHINESE_VOICES
     speed_options = SPEED_OPTIONS
 
     def __init__(
