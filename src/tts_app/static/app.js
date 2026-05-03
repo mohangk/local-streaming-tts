@@ -1,6 +1,8 @@
 const state = {
   inputMode: "text",
   generations: [],
+  ocrDrafts: [],
+  currentOcrDraftId: null,
   currentGenerationId: null,
   currentDetail: null,
   currentSegmentIndex: 0,
@@ -13,6 +15,7 @@ const state = {
   options: {
     default_language: "en",
     default_voice: "",
+    default_voices: {},
     default_speed: 1.0,
     voices: [],
     speeds: [{ value: 1.0, label: "1x" }],
@@ -23,11 +26,19 @@ const views = document.querySelectorAll(".view");
 const navButtons = document.querySelectorAll(".nav-button");
 const textModeButton = document.querySelector("#text-mode");
 const urlModeButton = document.querySelector("#url-mode");
+const imageModeButton = document.querySelector("#image-mode");
 const textInput = document.querySelector("#text-input");
 const urlInput = document.querySelector("#url-input");
+const imageInput = document.querySelector("#image-input");
 const textLabel = document.querySelector("#text-label");
 const urlLabel = document.querySelector("#url-label");
+const imageActions = document.querySelector("#image-actions");
+const extractImageTextButton = document.querySelector("#extract-image-text");
+const ocrReviewText = document.querySelector("#ocr-review-text");
+const generateOcrAudioButton = document.querySelector("#generate-ocr-audio");
+const ocrDraftsList = document.querySelector("#ocr-drafts-list");
 const generateForm = document.querySelector("#generate-form");
+const generateSubmitButton = generateForm.querySelector('button[type="submit"]');
 const languageSelect = document.querySelector("#language-select");
 const voiceSelect = document.querySelector("#voice-select");
 const voiceStar = document.querySelector("#voice-star");
@@ -58,12 +69,25 @@ function showView(viewId) {
 function setInputMode(mode) {
   state.inputMode = mode;
   const isText = mode === "text";
+  const isUrl = mode === "url";
+  const isImage = mode === "image";
   textModeButton.classList.toggle("active", isText);
-  urlModeButton.classList.toggle("active", !isText);
+  urlModeButton.classList.toggle("active", isUrl);
+  imageModeButton.classList.toggle("active", isImage);
   textInput.classList.toggle("hidden", !isText);
   textLabel.classList.toggle("hidden", !isText);
-  urlInput.classList.toggle("hidden", isText);
-  urlLabel.classList.toggle("hidden", isText);
+  urlInput.classList.toggle("hidden", !isUrl);
+  urlLabel.classList.toggle("hidden", !isUrl);
+  imageInput.classList.toggle("hidden", !isImage);
+  imageActions.classList.toggle("hidden", !isImage);
+  extractImageTextButton.classList.toggle("hidden", !isImage);
+  ocrReviewText.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
+  generateOcrAudioButton.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
+  ocrDraftsList.classList.toggle("hidden", !isImage);
+  generateSubmitButton.classList.toggle("hidden", isImage);
+  if (isImage) {
+    loadOcrDrafts();
+  }
 }
 
 function escapeHtml(value) {
@@ -85,7 +109,8 @@ function currentLanguage() {
 }
 
 function languageLabel(language) {
-  return { en: "English", zh: "Chinese" }[language] || language || "Auto";
+  const labels = { en: "English", zh: "Chinese" };
+  return labels[language] || language || "Auto";
 }
 
 function voiceMatchesLanguage(voice, language) {
@@ -94,13 +119,18 @@ function voiceMatchesLanguage(voice, language) {
 
 function selectedVoiceOption() {
   const language = currentLanguage();
-  return state.options.voices.find(
-    (voice) => String(voice.value) === String(voiceSelect.value) && voiceMatchesLanguage(voice, language),
+  return (
+    state.options.voices.find(
+      (voice) => String(voice.value) === String(voiceSelect.value) && voiceMatchesLanguage(voice, language),
+    ) || null
   );
 }
 
 async function submitGeneration(event) {
   event.preventDefault();
+  if (state.inputMode === "image") {
+    return;
+  }
   const isText = state.inputMode === "text";
   const endpoint = isText ? "/api/generations/text" : "/api/generations/url";
   state.autoplay = autoplayInput.checked;
@@ -122,6 +152,7 @@ async function submitGeneration(event) {
     return;
   }
 
+  stopPlayback();
   try {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -155,13 +186,16 @@ async function loadOptions() {
 }
 
 function renderOptions() {
-  const previousLanguage = currentLanguage();
+  const previousLanguage = languageSelect.value || state.options.default_language || "en";
+  const previousVoice = voiceSelect.value || state.options.default_voice;
   const languages = Array.from(
     new Set([
       state.options.default_language || "en",
+      ...Object.keys(state.options.default_voices || {}),
       ...state.options.voices.map((voice) => voice.language).filter(Boolean),
-    ]),
+    ])
   );
+
   languageSelect.innerHTML = languages
     .map((language) => {
       const selected = language === previousLanguage ? " selected" : "";
@@ -172,14 +206,17 @@ function renderOptions() {
   const language = currentLanguage();
   const voices = state.options.voices.filter((voice) => voiceMatchesLanguage(voice, language));
   const defaultVoice = state.options.default_voices?.[language] || state.options.default_voice;
+  const selectedVoice = voices.some((voice) => String(voice.value) === previousVoice)
+    ? previousVoice
+    : voices.find((voice) => voice.preferred)?.value || defaultVoice;
+
   voiceSelect.innerHTML = voices
     .map((voice) => {
-      const selected = voice.value === defaultVoice ? " selected" : "";
-      const prefix = voice.preferred ? "★ " : "";
-      return `<option value="${escapeHtml(voice.value)}"${selected}>${escapeHtml(prefix)}${escapeHtml(voice.label)}</option>`;
+      const selected = String(voice.value) === String(selectedVoice) ? " selected" : "";
+      const star = voice.preferred ? "★ " : "";
+      return `<option value="${escapeHtml(voice.value)}"${selected}>${star}${escapeHtml(voice.label)}</option>`;
     })
     .join("");
-  updateVoiceStar();
 
   speedSelect.innerHTML = state.options.speeds
     .map((speed) => {
@@ -187,6 +224,7 @@ function renderOptions() {
       return `<option value="${escapeHtml(speed.value)}"${selected}>${escapeHtml(speed.label)}</option>`;
     })
     .join("");
+  updateVoiceStar();
 }
 
 function updateVoiceStar() {
@@ -364,6 +402,169 @@ async function deleteGeneration(generationId) {
     await loadHistory();
   } catch {
     playerStatus.textContent = "Unable to delete history entry";
+  }
+}
+
+function showOcrDraft(draft) {
+  state.currentOcrDraftId = draft.id;
+  if (draft.language) {
+    languageSelect.value = draft.language;
+    renderOptions();
+  }
+  ocrReviewText.value = draft.extracted_text || "";
+  ocrReviewText.classList.remove("hidden");
+  generateOcrAudioButton.classList.remove("hidden");
+}
+
+async function loadOcrDrafts() {
+  try {
+    const response = await fetch("/api/ocr-drafts");
+    if (!response.ok) {
+      ocrDraftsList.innerHTML = '<div class="history-item">Unable to load image drafts</div>';
+      return;
+    }
+    state.ocrDrafts = await response.json();
+    renderOcrDrafts();
+  } catch {
+    ocrDraftsList.innerHTML = '<div class="history-item">Unable to load image drafts</div>';
+  }
+}
+
+function renderOcrDrafts() {
+  if (state.inputMode !== "image") {
+    return;
+  }
+  if (state.ocrDrafts.length === 0) {
+    ocrDraftsList.innerHTML = '<div class="history-item">No image drafts</div>';
+    return;
+  }
+  ocrDraftsList.innerHTML = state.ocrDrafts
+    .map((draft) => {
+      const created = draft.created_at ? new Date(`${draft.created_at}Z`).toLocaleString() : "";
+      const preview = draft.extracted_text || draft.error || draft.original_filename || "Image draft";
+      const generationButton = draft.linked_generation_id
+        ? `<button class="secondary-action compact-action" type="button" data-action="open-generation" data-generation-id="${draft.linked_generation_id}">Open audio</button>`
+        : "";
+      return `
+        <article class="history-item" data-draft-id="${draft.id}">
+          <div class="history-item-title">${escapeHtml(draft.original_filename || "Image draft")}</div>
+          <div class="history-item-meta">${escapeHtml(draft.status)} ${escapeHtml(created)}</div>
+          <div class="history-item-preview">${escapeHtml(preview)}</div>
+          <div class="history-actions">
+            <button class="secondary-action compact-action" type="button" data-action="open-draft" data-draft-id="${draft.id}">Review</button>
+            ${generationButton}
+            <button class="danger-action compact-action" type="button" data-action="delete-draft" data-draft-id="${draft.id}">Delete</button>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+async function extractImageText() {
+  const image = imageInput.files?.[0];
+  if (!image) {
+    return;
+  }
+  stopPlayback();
+  const formData = new FormData();
+  formData.append("image", image);
+  formData.append("language", currentLanguage());
+  playerStatus.textContent = "Extracting image text";
+  try {
+    const response = await fetch("/api/ocr-drafts", {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      playerStatus.textContent = error.detail || "Image text extraction failed";
+      return;
+    }
+    const draft = await response.json();
+    showOcrDraft(draft);
+    await loadOcrDrafts();
+  } catch {
+    playerStatus.textContent = "Image text extraction failed";
+  }
+}
+
+async function openOcrDraft(draftId) {
+  stopPlayback();
+  try {
+    const response = await fetch(`/api/ocr-drafts/${draftId}`);
+    if (!response.ok) {
+      playerStatus.textContent = "Unable to load image draft";
+      return;
+    }
+    showOcrDraft(await response.json());
+  } catch {
+    playerStatus.textContent = "Unable to load image draft";
+  }
+}
+
+async function deleteOcrDraft(draftId) {
+  if (!window.confirm("Delete this image draft?")) {
+    return;
+  }
+  try {
+    const response = await fetch(`/api/ocr-drafts/${draftId}`, { method: "DELETE" });
+    if (!response.ok) {
+      playerStatus.textContent = "Unable to delete image draft";
+      return;
+    }
+    if (state.currentOcrDraftId === draftId) {
+      state.currentOcrDraftId = null;
+      ocrReviewText.value = "";
+      ocrReviewText.classList.add("hidden");
+      generateOcrAudioButton.classList.add("hidden");
+    }
+    await loadOcrDrafts();
+  } catch {
+    playerStatus.textContent = "Unable to delete image draft";
+  }
+}
+
+async function generateOcrAudio() {
+  if (!state.currentOcrDraftId || !ocrReviewText.value.trim()) {
+    return;
+  }
+  stopPlayback();
+  state.autoplay = autoplayInput.checked;
+  const language = currentLanguage();
+  const text = ocrReviewText.value.trim();
+  try {
+    const update = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language, extracted_text: text }),
+    });
+    if (!update.ok) {
+      const error = await update.json();
+      playerStatus.textContent = error.detail || "Unable to save reviewed text";
+      return;
+    }
+    const response = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}/generation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        voice: voiceSelect.value,
+        speed: Number(speedSelect.value || "1"),
+        language,
+        autoplay: state.autoplay,
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      playerStatus.textContent = error.detail || "Image audio generation failed";
+      return;
+    }
+    const result = await response.json();
+    await loadOcrDrafts();
+    await openGeneration(result.generation_id, { subscribe: true, autoplay: state.autoplay });
+  } catch {
+    playerStatus.textContent = "Image audio generation failed";
   }
 }
 
@@ -608,7 +809,14 @@ navButtons.forEach((button) => {
 
 textModeButton.addEventListener("click", () => setInputMode("text"));
 urlModeButton.addEventListener("click", () => setInputMode("url"));
+imageModeButton.addEventListener("click", () => setInputMode("image"));
 generateForm.addEventListener("submit", submitGeneration);
+languageSelect.addEventListener("change", renderOptions);
+voiceSelect.addEventListener("change", updateVoiceStar);
+voiceStar.addEventListener("click", toggleVoicePreference);
+voiceSample.addEventListener("click", playVoiceSample);
+extractImageTextButton.addEventListener("click", extractImageText);
+generateOcrAudioButton.addEventListener("click", generateOcrAudio);
 historySearch.addEventListener("input", renderHistory);
 backToHistory.addEventListener("click", () => {
   stopPlayback();
@@ -632,6 +840,27 @@ historyList.addEventListener("click", (event) => {
       return;
     }
     openGeneration(generationId, { subscribe: false, autoplay: true });
+  }
+});
+
+ocrDraftsList.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-action]");
+  const draftItem = event.target.closest("[data-draft-id]");
+  if (!action || !draftItem) {
+    return;
+  }
+  const draftId = Number(draftItem.dataset.draftId);
+  if (action.dataset.action === "delete-draft") {
+    deleteOcrDraft(draftId);
+    return;
+  }
+  if (action.dataset.action === "open-generation") {
+    stopPlayback();
+    openGeneration(Number(action.dataset.generationId), { subscribe: false, autoplay: true });
+    return;
+  }
+  if (action.dataset.action === "open-draft") {
+    openOcrDraft(draftId);
   }
 });
 
@@ -659,11 +888,6 @@ playPauseButton.addEventListener("click", () => {
   state.continuousPlayback = false;
   audioPlayer.pause();
 });
-
-languageSelect.addEventListener("change", renderOptions);
-voiceSelect.addEventListener("change", updateVoiceStar);
-voiceStar.addEventListener("click", toggleVoicePreference);
-voiceSample.addEventListener("click", playVoiceSample);
 
 audioPlayer.addEventListener("play", () => {
   playPauseButton.textContent = "Pause";

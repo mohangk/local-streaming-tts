@@ -13,12 +13,20 @@
         <div class="mode-tabs" role="tablist" aria-label="Input mode">
           <button id="text-mode" class="mode-tab active" type="button">Text</button>
           <button id="url-mode" class="mode-tab" type="button">URL</button>
+          <button id="image-mode" class="mode-tab" type="button">Image</button>
         </div>
         <form id="generate-form" class="panel">
           <label id="text-label" class="field-label" for="text-input">Text</label>
           <textarea id="text-input" rows="9" aria-label="Text to read aloud"></textarea>
           <label id="url-label" class="field-label hidden" for="url-input">URL</label>
           <input id="url-input" class="hidden" type="url" aria-label="Page URL" />
+          <input id="image-input" class="hidden" type="file" accept="image/*" capture="environment" aria-label="Image to OCR" />
+          <div id="image-actions" class="image-actions hidden">
+            <button id="extract-image-text" class="secondary-action hidden" type="button">Extract text</button>
+          </div>
+          <textarea id="ocr-review-text" class="ocr-review hidden" rows="9" aria-label="Reviewed OCR text"></textarea>
+          <button id="generate-ocr-audio" class="primary-action hidden" type="button">Generate audio</button>
+          <div id="ocr-drafts-list" class="history-list"></div>
           <div class="option-grid">
             <label class="field-label" for="language-select">
               Language
@@ -28,7 +36,7 @@
               Voice
               <span class="voice-row">
                 <select id="voice-select" aria-label="Voice"></select>
-                <button id="voice-star" class="secondary-action icon-action" type="button" aria-label="Mark voice as preferred">☆</button>
+                <button id="voice-star" class="secondary-action icon-action" type="button" aria-label="Toggle preferred voice">☆</button>
               </span>
             </label>
             <label class="field-label" for="speed-select">
