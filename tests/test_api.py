@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from tts_app.api import create_app
 from tts_app.extractor import ExtractedText
+from tts_app.providers.base import AudioChunk, TTSOptions
 
 
 def _patch_starlette_1_testclient_for_tests() -> None:
@@ -116,6 +118,20 @@ def _patch_starlette_1_testclient_for_tests() -> None:
 
 
 _patch_starlette_1_testclient_for_tests()
+
+
+class CapturingTTSProvider:
+    name = "capturing"
+    voice_options = ()
+    speed_options = ()
+
+    def __init__(self):
+        self.calls: list[tuple[str, TTSOptions]] = []
+
+    async def stream_speech(self, text: str, options: TTSOptions) -> AsyncIterator[AudioChunk]:
+        self.calls.append((text, options))
+        yield AudioChunk(data=b"sample-", mime_type="audio/mpeg", extension="mp3")
+        yield AudioChunk(data=b"audio", mime_type="audio/mpeg", extension="mp3")
 
 
 def test_submit_text_starts_generation_and_history_returns_item(test_settings):
@@ -223,24 +239,39 @@ def test_voice_preference_endpoint_updates_preference(test_settings):
     )["preferred"] is True
 
 
-def test_voice_sample_returns_audio_without_creating_history(test_settings):
+def test_voice_sample_returns_audio_without_creating_history(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
     client = TestClient(create_app(test_settings, run_background_inline=True))
 
     response = client.post("/api/voice-sample", json={"voice": "Jennifer", "speed": 1.25, "language": "en"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/")
-    assert response.content
+    assert response.content == b"sample-audio"
     assert client.get("/api/generations").json() == []
+    assert not test_settings.audio_dir.exists()
+    text, options = provider.calls[0]
+    assert text.startswith("This is a short Readvox voice sample.")
+    assert options.voice == "Jennifer"
+    assert options.speed == 1.25
+    assert options.language == "English"
+    assert options.audio_format == "mp3"
 
 
-def test_voice_sample_uses_chinese_script(test_settings, caplog):
+def test_voice_sample_uses_chinese_script(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
     client = TestClient(create_app(test_settings, run_background_inline=True))
 
     response = client.post("/api/voice-sample", json={"voice": "Cherry", "speed": 1.0, "language": "zh"})
 
     assert response.status_code == 200
-    assert response.content
+    assert response.content == b"sample-audio"
+    text, options = provider.calls[0]
+    assert "这是一个简短的 Readvox 语音示例" in text
+    assert options.voice == "Cherry"
+    assert options.language == "Chinese"
 
 
 def test_submit_text_preserves_explicit_voice(test_settings):

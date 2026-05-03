@@ -67,6 +67,11 @@ SAMPLE_TEXT = {
     "zh": "这是一个简短的 Readvox 语音示例。请用它来检查声音、语速、清晰度和听感是否适合长时间收听。",
 }
 
+SAMPLE_LANGUAGES = {
+    "en": "English",
+    "zh": "Chinese",
+}
+
 
 def create_app(settings: Settings | None = None, run_background_inline: bool = False) -> FastAPI:
     active_settings = settings or load_settings()
@@ -147,13 +152,16 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     @app.post("/api/voice-sample")
     async def voice_sample(payload: VoiceSampleRequest):
         text = SAMPLE_TEXT.get(payload.language, SAMPLE_TEXT["en"])
-        data_parts = []
-        async for chunk in provider.stream_speech(text, TTSOptions(voice=payload.voice, speed=payload.speed)):
-            data_parts.append(chunk.data)
+        options = TTSOptions(
+            voice=payload.voice,
+            speed=payload.speed,
+            language=SAMPLE_LANGUAGES.get(payload.language, "Auto"),
+            audio_format="mp3",
+        )
 
         async def stream():
-            for data in data_parts:
-                yield data
+            async for chunk in provider.stream_speech(text, options):
+                yield chunk.data
 
         return StreamingResponse(stream(), media_type="audio/mpeg")
 
