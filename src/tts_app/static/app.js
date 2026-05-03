@@ -479,6 +479,7 @@ async function extractImageText() {
     if (!response.ok) {
       const error = await response.json();
       playerStatus.textContent = error.detail || "Image text extraction failed";
+      await loadOcrDrafts();
       return;
     }
     const draft = await response.json();

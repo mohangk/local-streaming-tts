@@ -119,8 +119,8 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     async def options():
         preferences = storage.list_voice_preferences()
         provider_voices = tuple(provider.english_voices) + tuple(provider.chinese_voices)
-        default_english_voice = active_settings.qwen_voice
-        default_chinese_voice = _default_voice_for_language(provider.chinese_voices, preferred="Cherry")
+        default_english_voice = active_settings.default_english_voice
+        default_chinese_voice = _default_provider_voice(provider.chinese_voices, active_settings.default_chinese_voice)
         voices = _voice_option_dicts(provider_voices, preferences)
         if not _has_voice(voices, default_english_voice, "en"):
             voices.insert(
@@ -229,6 +229,18 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             logger.warning("ocr_draft_failed draft_id=%s error=%s", draft_id, exc)
             raise HTTPException(status_code=502, detail=f"OCR failed: {exc}") from exc
 
+        if not extracted_text.strip():
+            error = "OCR returned no visible text"
+            storage.update_ocr_draft_ocr_result(
+                draft_id,
+                image_path=relative_image_path,
+                extracted_text="",
+                status="failed",
+                error=error,
+            )
+            logger.warning("ocr_draft_failed draft_id=%s error=%s", draft_id, error)
+            raise HTTPException(status_code=422, detail=error)
+
         storage.update_ocr_draft_ocr_result(
             draft_id,
             image_path=relative_image_path,
@@ -334,7 +346,15 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             payload.speed,
             len(reviewed_text),
         )
-        await _schedule_generation(service, generation_id, voice, payload.speed, background_tasks, run_background_inline)
+        await _schedule_generation(
+            service,
+            generation_id,
+            voice,
+            payload.speed,
+            _tts_language_for_ocr_language(payload.language),
+            background_tasks,
+            run_background_inline,
+        )
         return {"generation_id": generation_id}
 
     @app.post("/api/generations/text")
@@ -488,7 +508,7 @@ def _tts_language(language: str) -> str:
     return TTS_LANGUAGES.get(language, "Auto")
 
 
-def _default_voice_for_language(options: tuple[SelectOption, ...], preferred: str) -> str:
+def _default_provider_voice(options: tuple[SelectOption, ...], preferred: str) -> str:
     values = [str(option.value) for option in options]
     if preferred in values:
         return preferred
@@ -508,6 +528,10 @@ def _default_voice_for_language(settings: Settings, language: str) -> str:
     if language == "zh":
         return settings.default_chinese_voice
     return settings.default_english_voice
+
+
+def _tts_language_for_ocr_language(language: str) -> str:
+    return SAMPLE_LANGUAGES.get(language, "Auto")
 
 
 def _image_extension(filename: str | None) -> str:

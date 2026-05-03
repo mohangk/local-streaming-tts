@@ -142,6 +142,13 @@ class FailingOCRProvider:
         raise OCRProviderError("ocr unavailable")
 
 
+class EmptyOCRProvider:
+    name = "empty-ocr"
+
+    async def extract_text(self, image: bytes, mime_type: str, options: OCROptions) -> str:
+        return " \n\t "
+
+
 def test_submit_text_starts_generation_and_history_returns_item(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
@@ -349,6 +356,25 @@ def test_failed_ocr_draft_keeps_real_image_path(test_settings, monkeypatch):
     assert (test_settings.data_dir / draft["image_path"]).exists()
 
 
+def test_empty_ocr_draft_is_failed_with_real_image_path(test_settings, monkeypatch):
+    monkeypatch.setattr("tts_app.api.get_ocr_provider", lambda settings: EmptyOCRProvider())
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "OCR returned no visible text"
+    draft = client.get("/api/ocr-drafts").json()[0]
+    assert draft["status"] == "failed"
+    assert draft["error"] == "OCR returned no visible text"
+    assert draft["extracted_text"] == ""
+    assert draft["image_path"] == f"images/{draft['id']}/source.png"
+    assert (test_settings.data_dir / draft["image_path"]).exists()
+
+
 def test_delete_unlinked_ocr_draft_removes_image_directory(test_settings):
     client = TestClient(create_app(test_settings, run_background_inline=True))
     draft = client.post(
@@ -385,6 +411,26 @@ def test_update_ocr_draft_and_create_generation(test_settings):
     assert detail["generation"]["source_type"] == "image"
     assert detail["generation"]["full_text"] == "Reviewed text."
     assert detail["generation"]["settings"]["ocr_draft_id"] == draft["id"]
+
+
+def test_image_generation_passes_selected_language_to_tts_provider(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        data={"language": "zh"},
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+
+    response = client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={"text": "Ignored.", "voice": "Cherry", "speed": 1.0, "language": "zh", "autoplay": True},
+    )
+
+    assert response.status_code == 200
+    assert provider.calls
+    assert provider.calls[0][1].language == "Chinese"
 
 
 def test_generation_from_already_linked_ocr_draft_is_rejected(test_settings):

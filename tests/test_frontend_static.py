@@ -69,6 +69,23 @@ def test_frontend_does_not_seed_hard_coded_voice_options():
     assert "Cherry" not in initial_state
 
 
+def test_frontend_javascript_uses_ocr_draft_endpoints():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "/api/ocr-drafts" in js
+    assert "FormData" in js
+    assert "ocr-review-text" in js
+    assert "/generation" in js
+
+
+def test_frontend_refreshes_ocr_drafts_after_upload_error():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    extractor = js.split("async function extractImageText()", 1)[1].split("async function openOcrDraft", 1)[0]
+    error_branch = extractor.split("if (!response.ok)", 1)[1].split("return;", 1)[0]
+
+    assert "await loadOcrDrafts()" in error_branch
+
+
 def test_frontend_voice_sample_marks_sample_playback_state():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     sampler = js.split("async function playVoiceSample()", 1)[1].split("async function loadHistory()", 1)[0]
@@ -98,15 +115,6 @@ def test_frontend_ended_handler_skips_generation_progress_for_samples():
     assert "clearSamplePlayback()" in sample_branch
     assert "return" in sample_branch
     assert "saveProgress" not in sample_branch
-
-
-def test_frontend_javascript_uses_ocr_draft_endpoints():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
-    assert "/api/ocr-drafts" in js
-    assert "FormData" in js
-    assert "ocr-review-text" in js
-    assert "/generation" in js
 
 
 def test_frontend_javascript_ended_handler_respects_continuous_playback():
