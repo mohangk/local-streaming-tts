@@ -445,6 +445,84 @@ def test_update_ocr_draft_text_and_language(test_settings):
     assert draft["language"] == "zh"
 
 
+def test_init_schema_migrates_existing_ocr_draft_language_check(test_settings):
+    test_settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(test_settings.db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE generations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_type TEXT NOT NULL CHECK (source_type IN ('text', 'url', 'image')),
+                title TEXT NOT NULL,
+                url TEXT,
+                full_text TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                voice TEXT NOT NULL,
+                settings_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+                error TEXT,
+                last_segment_index INTEGER NOT NULL DEFAULT 0 CHECK (last_segment_index >= 0),
+                progress_percent INTEGER NOT NULL DEFAULT 0 CHECK (progress_percent >= 0 AND progress_percent <= 100),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE ocr_drafts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                image_path TEXT NOT NULL,
+                original_filename TEXT,
+                mime_type TEXT NOT NULL,
+                byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+                ocr_model TEXT NOT NULL,
+                language TEXT NOT NULL,
+                extracted_text TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+                error TEXT,
+                linked_generation_id INTEGER REFERENCES generations(id) ON DELETE SET NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO ocr_drafts
+                (image_path, original_filename, mime_type, byte_size, ocr_model, language, extracted_text, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("images/1/source.png", "valid.png", "image/png", 10, "fake-ocr", "zh", "valid", "completed"),
+        )
+        conn.execute(
+            """
+            INSERT INTO ocr_drafts
+                (image_path, original_filename, mime_type, byte_size, ocr_model, language, extracted_text, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("images/2/source.png", "invalid.png", "image/png", 12, "fake-ocr", "fr", "invalid", "completed"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+
+    drafts = storage.list_ocr_drafts()
+    assert [draft["language"] for draft in drafts] == ["en", "zh"]
+
+    with storage.connection() as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """
+                INSERT INTO ocr_drafts
+                    (image_path, original_filename, mime_type, byte_size, ocr_model, language, extracted_text, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("images/3/source.png", "invalid-again.png", "image/png", 14, "fake-ocr", "fr", "invalid again", "completed"),
+            )
+
+
 def test_invalid_ocr_draft_language_is_rejected(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()

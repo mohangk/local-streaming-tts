@@ -107,6 +107,7 @@ class Storage:
             )
             self._ensure_generation_source_type_allows_image(conn)
             self._ensure_generation_progress_columns(conn)
+            self._ensure_ocr_draft_language_check(conn)
             self._ensure_voice_preferences_language_key(conn)
             conn.execute(
                 """
@@ -155,6 +156,48 @@ class Storage:
             conn.execute("ALTER TABLE generations ADD COLUMN last_segment_index INTEGER NOT NULL DEFAULT 0")
         if "progress_percent" not in columns:
             conn.execute("ALTER TABLE generations ADD COLUMN progress_percent INTEGER NOT NULL DEFAULT 0")
+
+    def _ensure_ocr_draft_language_check(self, conn: sqlite3.Connection) -> None:
+        row = conn.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'ocr_drafts'
+            """
+        ).fetchone()
+        if row is None or row["sql"] is None or "language IN ('en', 'zh')" in row["sql"]:
+            return
+
+        conn.executescript(
+            """
+            ALTER TABLE ocr_drafts RENAME TO ocr_drafts_old;
+
+            CREATE TABLE ocr_drafts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                image_path TEXT NOT NULL,
+                original_filename TEXT,
+                mime_type TEXT NOT NULL,
+                byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+                ocr_model TEXT NOT NULL,
+                language TEXT NOT NULL CHECK (language IN ('en', 'zh')),
+                extracted_text TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+                error TEXT,
+                linked_generation_id INTEGER REFERENCES generations(id) ON DELETE SET NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT INTO ocr_drafts
+                (id, image_path, original_filename, mime_type, byte_size, ocr_model, language,
+                 extracted_text, status, error, linked_generation_id, created_at, updated_at)
+            SELECT id, image_path, original_filename, mime_type, byte_size, ocr_model,
+                   CASE WHEN language IN ('en', 'zh') THEN language ELSE 'en' END,
+                   extracted_text, status, error, linked_generation_id, created_at, updated_at
+            FROM ocr_drafts_old;
+
+            DROP TABLE ocr_drafts_old;
+            """
+        )
 
     def _validate_ocr_language(self, language: str) -> None:
         if language not in {"en", "zh"}:
