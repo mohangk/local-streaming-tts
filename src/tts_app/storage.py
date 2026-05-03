@@ -87,7 +87,7 @@ class Storage:
                     mime_type TEXT NOT NULL,
                     byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
                     ocr_model TEXT NOT NULL,
-                    language TEXT NOT NULL,
+                    language TEXT NOT NULL CHECK (language IN ('en', 'zh')),
                     extracted_text TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
                     error TEXT,
@@ -105,8 +105,49 @@ class Storage:
                 );
                 """
             )
+            self._ensure_generation_source_type_allows_image(conn)
             self._ensure_generation_progress_columns(conn)
             self._ensure_voice_preferences_language_key(conn)
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_ocr_drafts_linked_generation_id
+                ON ocr_drafts(linked_generation_id)
+                WHERE linked_generation_id IS NOT NULL
+                """
+            )
+
+    def _ensure_generation_source_type_allows_image(self, conn: sqlite3.Connection) -> None:
+        row = conn.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'generations'
+            """
+        ).fetchone()
+        if row is None or row["sql"] is None:
+            return
+
+        old_check = "source_type TEXT NOT NULL CHECK (source_type IN ('text', 'url'))"
+        if old_check not in row["sql"]:
+            return
+
+        new_sql = row["sql"].replace(
+            old_check,
+            "source_type TEXT NOT NULL CHECK (source_type IN ('text', 'url', 'image'))",
+        )
+        schema_version = int(conn.execute("PRAGMA schema_version").fetchone()[0])
+        try:
+            conn.execute("PRAGMA writable_schema = ON")
+            conn.execute(
+                """
+                UPDATE sqlite_master
+                SET sql = ?
+                WHERE type = 'table' AND name = 'generations'
+                """,
+                (new_sql,),
+            )
+            conn.execute(f"PRAGMA schema_version = {schema_version + 1}")
+        finally:
+            conn.execute("PRAGMA writable_schema = OFF")
 
     def _ensure_generation_progress_columns(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(generations)").fetchall()}
@@ -114,6 +155,10 @@ class Storage:
             conn.execute("ALTER TABLE generations ADD COLUMN last_segment_index INTEGER NOT NULL DEFAULT 0")
         if "progress_percent" not in columns:
             conn.execute("ALTER TABLE generations ADD COLUMN progress_percent INTEGER NOT NULL DEFAULT 0")
+
+    def _validate_ocr_language(self, language: str) -> None:
+        if language not in {"en", "zh"}:
+            raise ValueError("ocr draft language must be en or zh")
 
     def _validate_voice_language(self, language: str) -> None:
         if language not in {"en", "zh"}:
@@ -333,6 +378,7 @@ class Storage:
         status: Status,
         error: str | None = None,
     ) -> int:
+        self._validate_ocr_language(language)
         with self.connection() as conn:
             cur = conn.execute(
                 """
@@ -362,6 +408,7 @@ class Storage:
         return [dict(row) for row in rows]
 
     def update_ocr_draft(self, draft_id: int, *, extracted_text: str, language: str) -> None:
+        self._validate_ocr_language(language)
         with self.connection() as conn:
             cur = conn.execute(
                 """

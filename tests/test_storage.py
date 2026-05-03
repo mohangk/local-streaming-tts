@@ -194,6 +194,42 @@ def test_init_schema_migrates_existing_generation_progress_columns(test_settings
     assert "progress_percent" in columns
 
 
+def test_init_schema_migrates_existing_generation_source_type_check_for_image(test_settings):
+    test_settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(test_settings.db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE generations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_type TEXT NOT NULL CHECK (source_type IN ('text', 'url')),
+                title TEXT NOT NULL,
+                url TEXT,
+                full_text TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                voice TEXT NOT NULL,
+                settings_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+                error TEXT,
+                last_segment_index INTEGER NOT NULL DEFAULT 0 CHECK (last_segment_index >= 0),
+                progress_percent INTEGER NOT NULL DEFAULT 0 CHECK (progress_percent >= 0 AND progress_percent <= 100),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+
+    generation_id = storage.create_generation("image", "Image text", None, "OCR text", "fake", "Test", {})
+
+    assert storage.get_generation(generation_id)["generation"]["source_type"] == "image"
+
+
 def test_invalid_source_type_is_rejected_by_sqlite(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
@@ -409,6 +445,18 @@ def test_update_ocr_draft_text_and_language(test_settings):
     assert draft["language"] == "zh"
 
 
+def test_invalid_ocr_draft_language_is_rejected(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "raw", "completed")
+
+    with pytest.raises(ValueError, match="ocr draft language must be en or zh"):
+        storage.create_ocr_draft("images/2/source.png", None, "image/png", 10, "fake-ocr", "fr", "raw", "completed")
+
+    with pytest.raises(ValueError, match="ocr draft language must be en or zh"):
+        storage.update_ocr_draft(draft_id, extracted_text="reviewed text", language="fr")
+
+
 def test_delete_unlinked_ocr_draft(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
@@ -429,6 +477,20 @@ def test_delete_linked_ocr_draft_is_blocked(test_settings):
 
     with pytest.raises(ValueError, match="linked to generation"):
         storage.delete_ocr_draft(draft_id)
+
+
+def test_one_ocr_draft_can_link_to_a_generation(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    first_draft_id = storage.create_ocr_draft("images/1/source.png", None, "image/png", 10, "fake-ocr", "en", "text", "completed")
+    second_draft_id = storage.create_ocr_draft(
+        "images/2/source.png", None, "image/png", 10, "fake-ocr", "en", "other text", "completed"
+    )
+    generation_id = storage.create_generation("image", "Image text", None, "text", "fake", "Test", {"ocr_draft_id": first_draft_id})
+    storage.link_ocr_draft_generation(first_draft_id, generation_id)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        storage.link_ocr_draft_generation(second_draft_id, generation_id)
 
 
 def test_voice_preference_round_trip(test_settings):
