@@ -223,6 +223,26 @@ def test_voice_preference_endpoint_updates_preference(test_settings):
     )["preferred"] is True
 
 
+def test_voice_sample_returns_audio_without_creating_history(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post("/api/voice-sample", json={"voice": "Jennifer", "speed": 1.25, "language": "en"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/")
+    assert response.content
+    assert client.get("/api/generations").json() == []
+
+
+def test_voice_sample_uses_chinese_script(test_settings, caplog):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post("/api/voice-sample", json={"voice": "Cherry", "speed": 1.0, "language": "zh"})
+
+    assert response.status_code == 200
+    assert response.content
+
+
 def test_submit_text_preserves_explicit_voice(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
