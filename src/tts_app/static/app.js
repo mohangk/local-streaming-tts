@@ -15,7 +15,6 @@ const state = {
   options: {
     default_language: "en",
     default_voice: "",
-    default_voices: {},
     default_speed: 1.0,
     voices: [],
     speeds: [{ value: 1.0, label: "1x" }],
@@ -109,8 +108,7 @@ function currentLanguage() {
 }
 
 function languageLabel(language) {
-  const labels = { en: "English", zh: "Chinese" };
-  return labels[language] || language || "Auto";
+  return { en: "English", zh: "Chinese" }[language] || language || "Auto";
 }
 
 function voiceMatchesLanguage(voice, language) {
@@ -119,10 +117,8 @@ function voiceMatchesLanguage(voice, language) {
 
 function selectedVoiceOption() {
   const language = currentLanguage();
-  return (
-    state.options.voices.find(
-      (voice) => String(voice.value) === String(voiceSelect.value) && voiceMatchesLanguage(voice, language),
-    ) || null
+  return state.options.voices.find(
+    (voice) => String(voice.value) === String(voiceSelect.value) && voiceMatchesLanguage(voice, language),
   );
 }
 
@@ -186,16 +182,13 @@ async function loadOptions() {
 }
 
 function renderOptions() {
-  const previousLanguage = languageSelect.value || state.options.default_language || "en";
-  const previousVoice = voiceSelect.value || state.options.default_voice;
+  const previousLanguage = currentLanguage();
   const languages = Array.from(
     new Set([
       state.options.default_language || "en",
-      ...Object.keys(state.options.default_voices || {}),
       ...state.options.voices.map((voice) => voice.language).filter(Boolean),
-    ])
+    ]),
   );
-
   languageSelect.innerHTML = languages
     .map((language) => {
       const selected = language === previousLanguage ? " selected" : "";
@@ -206,17 +199,14 @@ function renderOptions() {
   const language = currentLanguage();
   const voices = state.options.voices.filter((voice) => voiceMatchesLanguage(voice, language));
   const defaultVoice = state.options.default_voices?.[language] || state.options.default_voice;
-  const selectedVoice = voices.some((voice) => String(voice.value) === previousVoice)
-    ? previousVoice
-    : voices.find((voice) => voice.preferred)?.value || defaultVoice;
-
   voiceSelect.innerHTML = voices
     .map((voice) => {
-      const selected = String(voice.value) === String(selectedVoice) ? " selected" : "";
-      const star = voice.preferred ? "★ " : "";
-      return `<option value="${escapeHtml(voice.value)}"${selected}>${star}${escapeHtml(voice.label)}</option>`;
+      const selected = voice.value === defaultVoice ? " selected" : "";
+      const prefix = voice.preferred ? "★ " : "";
+      return `<option value="${escapeHtml(voice.value)}"${selected}>${escapeHtml(prefix)}${escapeHtml(voice.label)}</option>`;
     })
     .join("");
+  updateVoiceStar();
 
   speedSelect.innerHTML = state.options.speeds
     .map((speed) => {
@@ -224,7 +214,6 @@ function renderOptions() {
       return `<option value="${escapeHtml(speed.value)}"${selected}>${escapeHtml(speed.label)}</option>`;
     })
     .join("");
-  updateVoiceStar();
 }
 
 function updateVoiceStar() {
@@ -812,12 +801,6 @@ textModeButton.addEventListener("click", () => setInputMode("text"));
 urlModeButton.addEventListener("click", () => setInputMode("url"));
 imageModeButton.addEventListener("click", () => setInputMode("image"));
 generateForm.addEventListener("submit", submitGeneration);
-languageSelect.addEventListener("change", renderOptions);
-voiceSelect.addEventListener("change", updateVoiceStar);
-voiceStar.addEventListener("click", toggleVoicePreference);
-voiceSample.addEventListener("click", playVoiceSample);
-extractImageTextButton.addEventListener("click", extractImageText);
-generateOcrAudioButton.addEventListener("click", generateOcrAudio);
 historySearch.addEventListener("input", renderHistory);
 backToHistory.addEventListener("click", () => {
   stopPlayback();
@@ -889,6 +872,13 @@ playPauseButton.addEventListener("click", () => {
   state.continuousPlayback = false;
   audioPlayer.pause();
 });
+
+languageSelect.addEventListener("change", renderOptions);
+voiceSelect.addEventListener("change", updateVoiceStar);
+voiceStar.addEventListener("click", toggleVoicePreference);
+voiceSample.addEventListener("click", playVoiceSample);
+extractImageTextButton.addEventListener("click", extractImageText);
+generateOcrAudioButton.addEventListener("click", generateOcrAudio);
 
 audioPlayer.addEventListener("play", () => {
   playPauseButton.textContent = "Pause";

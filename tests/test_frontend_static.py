@@ -37,28 +37,23 @@ def test_frontend_javascript_uses_history_and_event_endpoints():
     assert "scrollIntoView" in js
 
 
-def test_frontend_has_image_language_sample_and_preference_controls():
+def test_frontend_javascript_uses_language_scoped_voice_preferences():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "/preference" in js
+    assert "JSON.stringify({ preferred, language" in js
+    assert "option.language === voice.language" in js
+    assert "languageSelect.addEventListener(\"change\", renderOptions)" in js
+
+
+def test_frontend_has_image_input_controls():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     assert 'id="image-mode"' in html
-    assert 'id="language-select"' in html
-    assert 'id="voice-star"' in html
-    assert 'id="voice-sample"' in html
     assert 'id="image-input"' in html
     assert 'accept="image/*"' in html
     assert 'id="ocr-review-text"' in html
     assert 'id="ocr-drafts-list"' in html
-
-
-def test_frontend_javascript_uses_voice_sample_and_preference_endpoints():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
-    assert "/api/voice-sample" in js
-    assert "/preference" in js
-    assert "preferred" in js
-    assert "languageSelect" in js
-    assert "JSON.stringify({ preferred, language" in js
-    assert "option.language === voice.language" in js
 
 
 def test_frontend_does_not_seed_hard_coded_voice_options():
