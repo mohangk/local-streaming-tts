@@ -15,6 +15,7 @@ from tts_app.config import Settings, load_settings
 from tts_app.events import EventBroker
 from tts_app.extractor import ExtractionError, fetch_and_extract
 from tts_app.generation import GenerationService
+from tts_app.providers.base import TTSOptions
 from tts_app.providers.options import SelectOption
 from tts_app.providers.registry import get_provider
 from tts_app.storage import Storage
@@ -50,6 +51,23 @@ class VoicePreferenceRequest(BaseModel):
 
 
 TTS_LANGUAGES = {
+    "en": "English",
+    "zh": "Chinese",
+}
+
+
+class VoiceSampleRequest(BaseModel):
+    voice: str
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    language: str = "en"
+
+
+SAMPLE_TEXT = {
+    "en": "This is a short Readvox voice sample. Use it to check the voice, pacing, clarity, and listening comfort before generating the full article.",
+    "zh": "这是一个简短的 Readvox 语音示例。请用它来检查声音、语速、清晰度和听感是否适合长时间收听。",
+}
+
+SAMPLE_LANGUAGES = {
     "en": "English",
     "zh": "Chinese",
 }
@@ -130,6 +148,22 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             payload.preferred,
         )
         return {"voice": voice, "language": payload.language, "preferred": payload.preferred}
+
+    @app.post("/api/voice-sample")
+    async def voice_sample(payload: VoiceSampleRequest):
+        text = SAMPLE_TEXT.get(payload.language, SAMPLE_TEXT["en"])
+        options = TTSOptions(
+            voice=payload.voice,
+            speed=payload.speed,
+            language=SAMPLE_LANGUAGES.get(payload.language, "Auto"),
+            audio_format="mp3",
+        )
+
+        async def stream():
+            async for chunk in provider.stream_speech(text, options):
+                yield chunk.data
+
+        return StreamingResponse(stream(), media_type="audio/mpeg")
 
     @app.post("/api/generations/text")
     async def submit_text(payload: TextGenerationRequest, background_tasks: BackgroundTasks):

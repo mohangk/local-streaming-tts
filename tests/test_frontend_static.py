@@ -19,6 +19,7 @@ def test_frontend_has_generate_history_and_playback_views():
     assert 'id="language-select"' in html
     assert 'id="voice-select"' in html
     assert 'id="voice-star"' in html
+    assert 'id="voice-sample"' in html
     assert 'id="speed-select"' in html
 
 
@@ -51,6 +52,36 @@ def test_frontend_does_not_seed_hard_coded_voice_options():
 
     assert "voices: []" in initial_state
     assert "Cherry" not in initial_state
+
+
+def test_frontend_voice_sample_marks_sample_playback_state():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    sampler = js.split("async function playVoiceSample()", 1)[1].split("async function loadHistory()", 1)[0]
+
+    assert "state.samplePlayback = true" in sampler
+    assert "state.sampleObjectUrl = URL.createObjectURL(blob)" in sampler
+    assert "audioPlayer.src = state.sampleObjectUrl" in sampler
+
+
+def test_frontend_voice_sample_revokes_object_urls():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "URL.revokeObjectURL" in js
+    assert "function clearSamplePlayback" in js
+    assert "clearSamplePlayback()" in js.split("function stopPlayback", 1)[1].split(
+        "function handleEventSourceError", 1
+    )[0]
+
+
+def test_frontend_ended_handler_skips_generation_progress_for_samples():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    handler = js.split('audioPlayer.addEventListener("ended"', 1)[1].split("document.addEventListener", 1)[0]
+    sample_branch = handler.split("const nextIndex", 1)[0]
+
+    assert "state.samplePlayback" in sample_branch
+    assert "clearSamplePlayback()" in sample_branch
+    assert "return" in sample_branch
+    assert "saveProgress" not in sample_branch
 
 
 def test_frontend_javascript_ended_handler_respects_continuous_playback():
