@@ -5,6 +5,8 @@ const state = {
   currentDetail: null,
   currentSegmentIndex: 0,
   eventSource: null,
+  samplePlayback: false,
+  sampleObjectUrl: null,
   autoplay: false,
   continuousPlayback: false,
   wakeLock: null,
@@ -194,6 +196,14 @@ function updateVoiceStar() {
   voiceStar.setAttribute("aria-pressed", preferred ? "true" : "false");
 }
 
+function clearSamplePlayback() {
+  state.samplePlayback = false;
+  if (state.sampleObjectUrl) {
+    URL.revokeObjectURL(state.sampleObjectUrl);
+    state.sampleObjectUrl = null;
+  }
+}
+
 async function toggleVoicePreference() {
   const voice = selectedVoiceOption();
   if (!voice) {
@@ -219,6 +229,39 @@ async function toggleVoicePreference() {
     renderOptions();
   } catch {
     playerStatus.textContent = "Unable to update voice preference";
+  }
+}
+
+async function playVoiceSample() {
+  const voice = voiceSelect.value;
+  if (!voice) {
+    return;
+  }
+  stopPlayback();
+  try {
+    const response = await fetch("/api/voice-sample", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        voice,
+        speed: Number(speedSelect.value || "1"),
+        language: currentLanguage(),
+      }),
+    });
+    if (!response.ok) {
+      playerStatus.textContent = "Unable to load voice sample";
+      return;
+    }
+    const blob = await response.blob();
+    clearSamplePlayback();
+    state.sampleObjectUrl = URL.createObjectURL(blob);
+    state.samplePlayback = true;
+    audioPlayer.src = state.sampleObjectUrl;
+    audioPlayer.play().catch(() => {
+      playerStatus.textContent = "Tap Sample to play audio";
+    });
+  } catch {
+    playerStatus.textContent = "Unable to load voice sample";
   }
 }
 
@@ -393,6 +436,7 @@ function stopPlayback() {
   audioPlayer.pause();
   audioPlayer.removeAttribute("src");
   audioPlayer.load();
+  clearSamplePlayback();
   releaseWakeLock();
   playPauseButton.textContent = "Play";
 }
@@ -618,6 +662,7 @@ playPauseButton.addEventListener("click", () => {
 languageSelect.addEventListener("change", renderOptions);
 voiceSelect.addEventListener("change", updateVoiceStar);
 voiceStar.addEventListener("click", toggleVoicePreference);
+voiceSample.addEventListener("click", playVoiceSample);
 
 audioPlayer.addEventListener("play", () => {
   playPauseButton.textContent = "Pause";
@@ -630,6 +675,14 @@ audioPlayer.addEventListener("pause", () => {
 });
 
 audioPlayer.addEventListener("ended", () => {
+  if (state.samplePlayback) {
+    audioPlayer.pause();
+    audioPlayer.removeAttribute("src");
+    audioPlayer.load();
+    clearSamplePlayback();
+    releaseWakeLock();
+    return;
+  }
   const nextIndex = state.currentSegmentIndex + 1;
   if (state.continuousPlayback && state.currentDetail && nextIndex < state.currentDetail.text_segments.length) {
     playSegment(nextIndex);
