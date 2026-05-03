@@ -9,9 +9,10 @@ const state = {
   continuousPlayback: false,
   wakeLock: null,
   options: {
-    default_voice: "Cherry",
+    default_language: "en",
+    default_voice: "",
     default_speed: 1.0,
-    voices: [{ value: "Cherry", label: "Cherry" }],
+    voices: [],
     speeds: [{ value: 1.0, label: "1x" }],
   },
 };
@@ -25,7 +26,9 @@ const urlInput = document.querySelector("#url-input");
 const textLabel = document.querySelector("#text-label");
 const urlLabel = document.querySelector("#url-label");
 const generateForm = document.querySelector("#generate-form");
+const languageSelect = document.querySelector("#language-select");
 const voiceSelect = document.querySelector("#voice-select");
+const voiceStar = document.querySelector("#voice-star");
 const speedSelect = document.querySelector("#speed-select");
 const autoplayInput = document.querySelector("#autoplay");
 const historySearch = document.querySelector("#history-search");
@@ -74,6 +77,25 @@ function formatSpeed(value) {
   return `${Number.isInteger(speed) ? speed.toFixed(0) : speed}x`;
 }
 
+function currentLanguage() {
+  return languageSelect.value || state.options.default_language || "en";
+}
+
+function languageLabel(language) {
+  return { en: "English", zh: "Chinese" }[language] || language || "Auto";
+}
+
+function voiceMatchesLanguage(voice, language) {
+  return !voice.language || voice.language === language;
+}
+
+function selectedVoiceOption() {
+  const language = currentLanguage();
+  return state.options.voices.find(
+    (voice) => String(voice.value) === String(voiceSelect.value) && voiceMatchesLanguage(voice, language),
+  );
+}
+
 async function submitGeneration(event) {
   event.preventDefault();
   const isText = state.inputMode === "text";
@@ -84,6 +106,7 @@ async function submitGeneration(event) {
   };
   payload.voice = voiceSelect.value;
   payload.speed = Number(speedSelect.value || "1");
+  payload.language = currentLanguage();
 
   if (isText) {
     payload.text = textInput.value.trim();
@@ -129,12 +152,31 @@ async function loadOptions() {
 }
 
 function renderOptions() {
-  voiceSelect.innerHTML = state.options.voices
-    .map((voice) => {
-      const selected = voice.value === state.options.default_voice ? " selected" : "";
-      return `<option value="${escapeHtml(voice.value)}"${selected}>${escapeHtml(voice.label)}</option>`;
+  const previousLanguage = currentLanguage();
+  const languages = Array.from(
+    new Set([
+      state.options.default_language || "en",
+      ...state.options.voices.map((voice) => voice.language).filter(Boolean),
+    ]),
+  );
+  languageSelect.innerHTML = languages
+    .map((language) => {
+      const selected = language === previousLanguage ? " selected" : "";
+      return `<option value="${escapeHtml(language)}"${selected}>${escapeHtml(languageLabel(language))}</option>`;
     })
     .join("");
+
+  const language = currentLanguage();
+  const voices = state.options.voices.filter((voice) => voiceMatchesLanguage(voice, language));
+  const defaultVoice = state.options.default_voices?.[language] || state.options.default_voice;
+  voiceSelect.innerHTML = voices
+    .map((voice) => {
+      const selected = voice.value === defaultVoice ? " selected" : "";
+      const prefix = voice.preferred ? "★ " : "";
+      return `<option value="${escapeHtml(voice.value)}"${selected}>${escapeHtml(prefix)}${escapeHtml(voice.label)}</option>`;
+    })
+    .join("");
+  updateVoiceStar();
 
   speedSelect.innerHTML = state.options.speeds
     .map((speed) => {
@@ -142,6 +184,42 @@ function renderOptions() {
       return `<option value="${escapeHtml(speed.value)}"${selected}>${escapeHtml(speed.label)}</option>`;
     })
     .join("");
+}
+
+function updateVoiceStar() {
+  const voice = selectedVoiceOption();
+  const preferred = Boolean(voice?.preferred);
+  voiceStar.textContent = preferred ? "★" : "☆";
+  voiceStar.classList.toggle("active", preferred);
+  voiceStar.setAttribute("aria-pressed", preferred ? "true" : "false");
+}
+
+async function toggleVoicePreference() {
+  const voice = selectedVoiceOption();
+  if (!voice) {
+    return;
+  }
+  const language = currentLanguage();
+  const preferred = !voice.preferred;
+  try {
+    const response = await fetch(`/api/voices/${encodeURIComponent(voice.value)}/preference`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferred, language }),
+    });
+    if (!response.ok) {
+      playerStatus.textContent = "Unable to update voice preference";
+      return;
+    }
+    state.options.voices.forEach((option) => {
+      if (String(option.value) === String(voice.value) && option.language === voice.language) {
+        option.preferred = preferred;
+      }
+    });
+    renderOptions();
+  } catch {
+    playerStatus.textContent = "Unable to update voice preference";
+  }
 }
 
 async function loadHistory() {
@@ -536,6 +614,10 @@ playPauseButton.addEventListener("click", () => {
   state.continuousPlayback = false;
   audioPlayer.pause();
 });
+
+languageSelect.addEventListener("change", renderOptions);
+voiceSelect.addEventListener("change", updateVoiceStar);
+voiceStar.addEventListener("click", toggleVoicePreference);
 
 audioPlayer.addEventListener("play", () => {
   playPauseButton.textContent = "Pause";

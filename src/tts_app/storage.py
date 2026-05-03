@@ -79,9 +79,18 @@ class Storage:
                     FOREIGN KEY (generation_id, text_segment_id, segment_index) REFERENCES text_segments(generation_id, id, segment_index) ON DELETE CASCADE,
                     UNIQUE(generation_id, segment_index)
                 );
+
+                CREATE TABLE IF NOT EXISTS voice_preferences (
+                    voice TEXT NOT NULL,
+                    language TEXT NOT NULL CHECK (language IN ('en', 'zh')),
+                    preferred INTEGER NOT NULL DEFAULT 0 CHECK (preferred IN (0, 1)),
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (voice, language)
+                );
                 """
             )
             self._ensure_generation_progress_columns(conn)
+            self._ensure_voice_preferences_language_key(conn)
 
     def _ensure_generation_progress_columns(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(generations)").fetchall()}
@@ -89,6 +98,36 @@ class Storage:
             conn.execute("ALTER TABLE generations ADD COLUMN last_segment_index INTEGER NOT NULL DEFAULT 0")
         if "progress_percent" not in columns:
             conn.execute("ALTER TABLE generations ADD COLUMN progress_percent INTEGER NOT NULL DEFAULT 0")
+
+    def _validate_voice_language(self, language: str) -> None:
+        if language not in {"en", "zh"}:
+            raise ValueError("voice preference language must be en or zh")
+
+    def _ensure_voice_preferences_language_key(self, conn: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(voice_preferences)").fetchall()}
+        if "language" in columns:
+            return
+
+        conn.execute("ALTER TABLE voice_preferences RENAME TO voice_preferences_old")
+        conn.execute(
+            """
+            CREATE TABLE voice_preferences (
+                voice TEXT NOT NULL,
+                language TEXT NOT NULL CHECK (language IN ('en', 'zh')),
+                preferred INTEGER NOT NULL DEFAULT 0 CHECK (preferred IN (0, 1)),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (voice, language)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO voice_preferences (voice, language, preferred, updated_at)
+            SELECT voice, 'en', preferred, updated_at
+            FROM voice_preferences_old
+            """
+        )
+        conn.execute("DROP TABLE voice_preferences_old")
 
     def create_generation(
         self,
@@ -265,3 +304,24 @@ class Storage:
         if row is None:
             raise KeyError(f"audio segment {audio_segment_id} not found")
         return dict(row)
+
+    def set_voice_preference(self, voice: str, language: str, preferred: bool) -> None:
+        self._validate_voice_language(language)
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO voice_preferences (voice, language, preferred, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(voice, language) DO UPDATE SET
+                    preferred = excluded.preferred,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (voice, language, int(preferred)),
+            )
+
+    def list_voice_preferences(self) -> dict[tuple[str, str], bool]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT voice, language, preferred FROM voice_preferences ORDER BY language, voice"
+            ).fetchall()
+        return {(str(row["voice"]), str(row["language"])): bool(row["preferred"]) for row in rows}

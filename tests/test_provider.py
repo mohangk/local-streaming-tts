@@ -36,6 +36,27 @@ async def test_fake_provider_streams_deterministic_chunks():
     assert b"Hello world." in chunks[0].data
 
 
+def test_fake_provider_declares_own_language_voice_options():
+    provider = FakeTTSProvider()
+
+    assert provider.english_voices
+    assert provider.chinese_voices
+    assert not hasattr(provider, "voice_options")
+    assert all("Qwen" not in voice.label for voice in provider.english_voices + provider.chinese_voices)
+    assert {voice.language for voice in provider.english_voices} == {"en"}
+    assert {voice.language for voice in provider.chinese_voices} == {"zh"}
+
+
+def test_qwen_provider_declares_language_voice_options():
+    provider = QwenTTSProvider(api_key="key", model="model", realtime_url="wss://example.test")
+
+    assert provider.english_voices
+    assert provider.chinese_voices
+    assert not hasattr(provider, "voice_options")
+    assert {voice.language for voice in provider.english_voices} == {"en"}
+    assert {voice.language for voice in provider.chinese_voices} == {"zh"}
+
+
 def test_registry_returns_fake_provider(test_settings):
     provider = get_provider(test_settings)
 

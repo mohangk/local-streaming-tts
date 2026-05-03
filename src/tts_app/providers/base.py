@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import AsyncIterator, Protocol
 
+from tts_app.providers.options import SelectOption
+
 
 class ProviderError(RuntimeError):
     pass
@@ -28,6 +30,8 @@ class AudioChunk:
 
 class TTSProvider(Protocol):
     name: str
+    english_voices: tuple[SelectOption, ...]
+    chinese_voices: tuple[SelectOption, ...]
 
     def stream_speech(self, text: str, options: TTSOptions) -> AsyncIterator[AudioChunk]:
         ...

@@ -14,6 +14,9 @@ textarea, input[type="url"], select, .search-input { width: 100%; border: 1px so
 textarea { resize: vertical; min-height: 220px; }
 .option-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .option-grid label { display: grid; gap: 6px; }
+.voice-row { display: grid; grid-template-columns: 1fr 48px; gap: 8px; }
+.icon-action { min-height: 48px; padding: 0; font-size: 1.35rem; line-height: 1; }
+.icon-action.active { border-color: #b7791f; color: #8a4b00; background: #fff7e6; }
 .hidden { display: none; }
 .toggle-row { display: flex; align-items: center; gap: 8px; }
 .toggle-row.compact { font-size: 0.9rem; color: #596171; }
@@ -40,4 +43,4 @@ textarea { resize: vertical; min-height: 220px; }
 .text-segment.pending { color: #6b7280; }
 .text-segment.active-segment { border-left-color: #1769d1; background: #eef5ff; }
 .bottom-nav { position: fixed; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; background: #ffffff; border-top: 1px solid #d8dde6; }
-@media (min-width: 800px) { .app-shell { padding-bottom: 28px; } .option-grid { grid-template-columns: 1fr 160px; } .bottom-nav { position: static; max-width: 760px; margin: 0 auto 24px; border: 0; background: transparent; } }
+@media (min-width: 800px) { .app-shell { padding-bottom: 28px; } .option-grid { grid-template-columns: 160px 1fr 160px; } .bottom-nav { position: static; max-width: 760px; margin: 0 auto 24px; border: 0; background: transparent; } }

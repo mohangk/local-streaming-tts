@@ -5,12 +5,22 @@ import hashlib
 from typing import AsyncIterator
 
 from tts_app.providers.base import AudioChunk, TTSOptions
-from tts_app.providers.options import QWEN_ENGLISH_VOICES, SPEED_OPTIONS
+from tts_app.providers.options import SPEED_OPTIONS, SelectOption
+
+
+FAKE_ENGLISH_VOICES: tuple[SelectOption, ...] = (
+    SelectOption("Fake English", "Fake English voice", language="en"),
+)
+
+FAKE_CHINESE_VOICES: tuple[SelectOption, ...] = (
+    SelectOption("Fake Chinese", "Fake Chinese voice", language="zh"),
+)
 
 
 class FakeTTSProvider:
     name = "fake"
-    voice_options = QWEN_ENGLISH_VOICES
+    english_voices = FAKE_ENGLISH_VOICES
+    chinese_voices = FAKE_CHINESE_VOICES
     speed_options = SPEED_OPTIONS
 
     async def stream_speech(self, text: str, options: TTSOptions) -> AsyncIterator[AudioChunk]:

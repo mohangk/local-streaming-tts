@@ -20,9 +20,16 @@
           <label id="url-label" class="field-label hidden" for="url-input">URL</label>
           <input id="url-input" class="hidden" type="url" aria-label="Page URL" />
           <div class="option-grid">
+            <label class="field-label" for="language-select">
+              Language
+              <select id="language-select" aria-label="Language"></select>
+            </label>
             <label class="field-label" for="voice-select">
               Voice
-              <select id="voice-select" aria-label="Voice"></select>
+              <span class="voice-row">
+                <select id="voice-select" aria-label="Voice"></select>
+                <button id="voice-star" class="secondary-action icon-action" type="button" aria-label="Mark voice as preferred">☆</button>
+              </span>
             </label>
             <label class="field-label" for="speed-select">
               Speed

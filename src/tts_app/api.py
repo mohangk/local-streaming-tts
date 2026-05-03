@@ -27,6 +27,7 @@ class TextGenerationRequest(BaseModel):
     title: str = "Manual text"
     voice: str | None = None
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    language: str = "en"
     autoplay: bool = True
 
 
@@ -34,12 +35,24 @@ class UrlGenerationRequest(BaseModel):
     url: str = Field(min_length=1)
     voice: str | None = None
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    language: str = "en"
     autoplay: bool = True
 
 
 class ProgressRequest(BaseModel):
     segment_index: int = Field(ge=0)
     completed: bool = False
+
+
+class VoicePreferenceRequest(BaseModel):
+    preferred: bool
+    language: str = "en"
+
+
+TTS_LANGUAGES = {
+    "en": "English",
+    "zh": "Chinese",
+}
 
 
 def create_app(settings: Settings | None = None, run_background_inline: bool = False) -> FastAPI:
@@ -69,24 +82,64 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
 
     @app.get("/api/options")
     async def options():
-        voices = _option_dicts(getattr(provider, "voice_options", ()))
-        if active_settings.qwen_voice not in {str(option["value"]) for option in voices}:
-            voices.insert(0, {"value": active_settings.qwen_voice, "label": active_settings.qwen_voice})
+        preferences = storage.list_voice_preferences()
+        provider_voices = tuple(provider.english_voices) + tuple(provider.chinese_voices)
+        default_english_voice = active_settings.qwen_voice
+        default_chinese_voice = _default_voice_for_language(provider.chinese_voices, preferred="Cherry")
+        voices = _voice_option_dicts(provider_voices, preferences)
+        if not _has_voice(voices, default_english_voice, "en"):
+            voices.insert(
+                0,
+                {
+                    "value": default_english_voice,
+                    "label": default_english_voice,
+                    "language": "en",
+                    "preferred": preferences.get((default_english_voice, "en"), False),
+                },
+            )
+        if default_chinese_voice and not _has_voice(voices, default_chinese_voice, "zh"):
+            voices.insert(
+                len([voice for voice in voices if voice["language"] == "en"]),
+                {
+                    "value": default_chinese_voice,
+                    "label": default_chinese_voice,
+                    "language": "zh",
+                    "preferred": preferences.get((default_chinese_voice, "zh"), False),
+                },
+            )
         return {
-            "default_voice": active_settings.qwen_voice,
+            "default_language": "en",
+            "default_voices": {
+                "en": default_english_voice,
+                "zh": default_chinese_voice,
+            },
+            "default_voice": default_english_voice,
             "default_speed": 1.0,
             "voices": voices,
             "speeds": _option_dicts(getattr(provider, "speed_options", ())),
         }
 
+    @app.put("/api/voices/{voice}/preference")
+    async def update_voice_preference(voice: str, payload: VoicePreferenceRequest):
+        _validate_language(payload.language)
+        storage.set_voice_preference(voice, payload.language, payload.preferred)
+        logger.info(
+            "voice_preference_updated voice=%s language=%s preferred=%s",
+            voice,
+            payload.language,
+            payload.preferred,
+        )
+        return {"voice": voice, "language": payload.language, "preferred": payload.preferred}
+
     @app.post("/api/generations/text")
     async def submit_text(payload: TextGenerationRequest, background_tasks: BackgroundTasks):
+        _validate_language(payload.language)
         voice = payload.voice or active_settings.qwen_voice
         generation_id = await service.create_from_text(
             text=payload.text,
             title=payload.title,
             voice=voice,
-            settings={"autoplay": payload.autoplay, "speed": payload.speed},
+            settings={"autoplay": payload.autoplay, "speed": payload.speed, "language": payload.language},
         )
         logger.info(
             "text_generation_submitted generation_id=%s voice=%s speed=%s text_chars=%s",
@@ -95,11 +148,20 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             payload.speed,
             len(payload.text),
         )
-        await _schedule_generation(service, generation_id, voice, payload.speed, background_tasks, run_background_inline)
+        await _schedule_generation(
+            service,
+            generation_id,
+            voice,
+            payload.speed,
+            _tts_language(payload.language),
+            background_tasks,
+            run_background_inline,
+        )
         return {"generation_id": generation_id}
 
     @app.post("/api/generations/url")
     async def submit_url(payload: UrlGenerationRequest, background_tasks: BackgroundTasks):
+        _validate_language(payload.language)
         voice = payload.voice or active_settings.qwen_voice
         try:
             extracted = await fetch_and_extract(payload.url)
@@ -112,7 +174,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             source_type="url",
             url=extracted.url,
             voice=voice,
-            settings={"autoplay": payload.autoplay, "speed": payload.speed},
+            settings={"autoplay": payload.autoplay, "speed": payload.speed, "language": payload.language},
         )
         logger.info(
             "url_generation_submitted generation_id=%s voice=%s speed=%s url=%s text_chars=%s",
@@ -122,7 +184,15 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             extracted.url,
             len(extracted.text),
         )
-        await _schedule_generation(service, generation_id, voice, payload.speed, background_tasks, run_background_inline)
+        await _schedule_generation(
+            service,
+            generation_id,
+            voice,
+            payload.speed,
+            _tts_language(payload.language),
+            background_tasks,
+            run_background_inline,
+        )
         return {"generation_id": generation_id}
 
     @app.get("/api/generations")
@@ -189,14 +259,63 @@ async def _schedule_generation(
     generation_id: int,
     voice: str,
     speed: float,
+    language: str,
     background_tasks: BackgroundTasks,
     run_background_inline: bool,
 ) -> None:
     if run_background_inline:
-        await service.run_generation(generation_id, voice, speed)
+        await service.run_generation(generation_id, voice, speed, language)
         return
-    background_tasks.add_task(service.run_generation, generation_id, voice, speed)
+    background_tasks.add_task(service.run_generation, generation_id, voice, speed, language)
+
+
+def _validate_language(language: str) -> None:
+    if language not in TTS_LANGUAGES:
+        raise HTTPException(status_code=400, detail="language must be en or zh")
+
+
+def _tts_language(language: str) -> str:
+    return TTS_LANGUAGES.get(language, "Auto")
+
+
+def _default_voice_for_language(options: tuple[SelectOption, ...], preferred: str) -> str:
+    values = [str(option.value) for option in options]
+    if preferred in values:
+        return preferred
+    return values[0] if values else preferred
+
+
+def _has_voice(voices: list[dict[str, str | float | bool | None]], value: str, language: str) -> bool:
+    return any(str(voice["value"]) == value and voice["language"] == language for voice in voices)
 
 
 def _option_dicts(options: Iterable[SelectOption]) -> list[dict[str, str | float]]:
     return [{"value": option.value, "label": option.label} for option in options]
+
+
+def _voice_option_dicts(
+    options: Iterable[SelectOption],
+    preferences: dict[tuple[str, str], bool],
+) -> list[dict[str, str | float | bool | None]]:
+    voice_options = list(options)
+    language_order: dict[str | None, int] = {}
+    for option in voice_options:
+        language_order.setdefault(option.language, len(language_order))
+
+    sorted_options = sorted(
+        enumerate(voice_options),
+        key=lambda item: (
+            language_order[item[1].language],
+            not preferences.get((str(item[1].value), str(item[1].language)), False),
+            item[0],
+        ),
+    )
+    return [
+        {
+            "value": option.value,
+            "label": option.label,
+            "language": option.language,
+            "preferred": preferences.get((str(option.value), str(option.language)), False),
+        }
+        for _, option in sorted_options
+    ]

@@ -105,6 +105,26 @@ async def test_generation_service_passes_speed_to_provider(test_settings):
 
 
 @pytest.mark.asyncio
+async def test_generation_service_passes_language_to_provider(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    broker = EventBroker()
+    provider = CapturingProvider()
+    service = GenerationService(
+        storage=storage,
+        provider=provider,
+        broker=broker,
+        audio_dir=test_settings.audio_dir,
+        segment_max_chars=20,
+    )
+
+    generation_id = await service.create_from_text("你好。", title="Manual text", voice="Cherry")
+    await service.run_generation(generation_id, voice="Cherry", speed=1.0, language="Chinese")
+
+    assert provider.options == [TTSOptions(voice="Cherry", speed=1.0, language="Chinese")]
+
+
+@pytest.mark.asyncio
 async def test_generation_service_writes_audio_under_custom_audio_dir(test_settings, tmp_path):
     audio_dir = tmp_path / "custom-audio"
     storage = Storage(test_settings.db_path)
