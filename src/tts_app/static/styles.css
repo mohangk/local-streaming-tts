@@ -1,6 +1,24 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f8fa; color: #16181d; }
 button, input, textarea, select { font: inherit; }
+button { transition: transform 120ms ease, opacity 120ms ease, background-color 120ms ease, border-color 120ms ease; }
+button:active { transform: translateY(1px) scale(0.99); }
+button:disabled { cursor: wait; opacity: 0.68; }
+button.is-busy, button[aria-busy="true"] { position: relative; padding-right: 2.25rem; }
+button.is-busy::after, button[aria-busy="true"]::after {
+  content: "";
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  width: 0.85rem;
+  height: 0.85rem;
+  margin-top: -0.425rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .app-shell { max-width: 760px; min-height: 100vh; margin: 0 auto; padding: 18px 14px 84px; }
 .view { display: none; }
 .active-view { display: block; }

@@ -102,6 +102,38 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function setButtonBusy(button, busy, label) {
+  if (!button) {
+    return;
+  }
+  if (busy) {
+    button.dataset.originalLabel = button.textContent;
+    if (label) {
+      button.textContent = label;
+    }
+    button.classList.add("is-busy");
+    button.setAttribute("aria-busy", "true");
+    button.disabled = true;
+    return;
+  }
+  if ("originalLabel" in button.dataset) {
+    button.textContent = button.dataset.originalLabel;
+    delete button.dataset.originalLabel;
+  }
+  button.classList.remove("is-busy");
+  button.removeAttribute("aria-busy");
+  button.disabled = false;
+}
+
+async function withButtonBusy(button, label, operation) {
+  setButtonBusy(button, true, label);
+  try {
+    return await operation();
+  } finally {
+    setButtonBusy(button, false);
+  }
+}
+
 function formatSpeed(value) {
   const speed = Number(value || 1);
   return `${Number.isInteger(speed) ? speed.toFixed(0) : speed}x`;
@@ -379,23 +411,25 @@ function renderHistory() {
     .join("");
 }
 
-async function deleteGeneration(generationId) {
+async function deleteGeneration(generationId, button = null) {
   if (!window.confirm("Delete this history entry and cached audio?")) {
     return;
   }
-  try {
-    const response = await fetch(`/api/generations/${generationId}`, { method: "DELETE" });
-    if (!response.ok) {
+  await withButtonBusy(button, "Deleting...", async () => {
+    try {
+      const response = await fetch(`/api/generations/${generationId}`, { method: "DELETE" });
+      if (!response.ok) {
+        playerStatus.textContent = "Unable to delete history entry";
+        return;
+      }
+      if (state.currentGenerationId === generationId) {
+        resetPlaybackState("Deleted generation");
+      }
+      await loadHistory();
+    } catch {
       playerStatus.textContent = "Unable to delete history entry";
-      return;
     }
-    if (state.currentGenerationId === generationId) {
-      resetPlaybackState("Deleted generation");
-    }
-    await loadHistory();
-  } catch {
-    playerStatus.textContent = "Unable to delete history entry";
-  }
+  });
 }
 
 function showOcrDraft(draft) {
@@ -601,80 +635,86 @@ async function prepareOcrImagesForUpload(images) {
   return prepared;
 }
 
-async function extractImageText() {
+async function extractImageText(button = null) {
   const images = Array.from(imageInput.files || []);
   if (images.length === 0) {
     return;
   }
-  stopPlayback();
-  let uploadImages;
-  try {
-    uploadImages = await prepareOcrImagesForUpload(images);
-  } catch {
-    playerStatus.textContent = "Unable to prepare image for upload";
-    return;
-  }
-  const formData = new FormData();
-  uploadImages.forEach((image) => {
-    formData.append("image", image);
-  });
-  formData.append("language", currentLanguage());
-  playerStatus.textContent = "Extracting image text";
-  try {
-    const response = await fetch("/api/ocr-drafts", {
-      method: "POST",
-      body: formData,
+  await withButtonBusy(button, "Extracting...", async () => {
+    stopPlayback();
+    let uploadImages;
+    try {
+      uploadImages = await prepareOcrImagesForUpload(images);
+    } catch {
+      playerStatus.textContent = "Unable to prepare image for upload";
+      return;
+    }
+    const formData = new FormData();
+    uploadImages.forEach((image) => {
+      formData.append("image", image);
     });
-    if (!response.ok) {
-      const error = await response.json();
-      playerStatus.textContent = error.detail || "Image text extraction failed";
+    formData.append("language", currentLanguage());
+    playerStatus.textContent = "Extracting image text";
+    try {
+      const response = await fetch("/api/ocr-drafts", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        playerStatus.textContent = error.detail || "Image text extraction failed";
+        await loadOcrDrafts();
+        return;
+      }
+      const draft = await response.json();
+      showOcrDraft(draft);
       await loadOcrDrafts();
-      return;
+    } catch {
+      playerStatus.textContent = "Image text extraction failed";
     }
-    const draft = await response.json();
-    showOcrDraft(draft);
-    await loadOcrDrafts();
-  } catch {
-    playerStatus.textContent = "Image text extraction failed";
-  }
+  });
 }
 
-async function openOcrDraft(draftId) {
-  stopPlayback();
-  try {
-    const response = await fetch(`/api/ocr-drafts/${draftId}`);
-    if (!response.ok) {
+async function openOcrDraft(draftId, button = null) {
+  await withButtonBusy(button, "Opening...", async () => {
+    stopPlayback();
+    try {
+      const response = await fetch(`/api/ocr-drafts/${draftId}`);
+      if (!response.ok) {
+        playerStatus.textContent = "Unable to load image draft";
+        return;
+      }
+      showOcrDraft(await response.json());
+    } catch {
       playerStatus.textContent = "Unable to load image draft";
-      return;
     }
-    showOcrDraft(await response.json());
-  } catch {
-    playerStatus.textContent = "Unable to load image draft";
-  }
+  });
 }
 
-async function deleteOcrDraft(draftId) {
+async function deleteOcrDraft(draftId, button = null) {
   if (!window.confirm("Delete this image draft?")) {
     return;
   }
-  try {
-    const response = await fetch(`/api/ocr-drafts/${draftId}`, { method: "DELETE" });
-    if (!response.ok) {
+  await withButtonBusy(button, "Deleting...", async () => {
+    try {
+      const response = await fetch(`/api/ocr-drafts/${draftId}`, { method: "DELETE" });
+      if (!response.ok) {
+        playerStatus.textContent = "Unable to delete image draft";
+        return;
+      }
+      if (state.currentOcrDraftId === draftId) {
+        state.currentOcrDraftId = null;
+        state.currentOcrDraft = null;
+        ocrReviewList.innerHTML = "";
+        ocrReviewList.classList.add("hidden");
+        generateOcrAudioButton.classList.add("hidden");
+      }
+      await loadOcrDrafts();
+      playerStatus.textContent = "Deleted image draft";
+    } catch {
       playerStatus.textContent = "Unable to delete image draft";
-      return;
     }
-    if (state.currentOcrDraftId === draftId) {
-      state.currentOcrDraftId = null;
-      state.currentOcrDraft = null;
-      ocrReviewList.innerHTML = "";
-      ocrReviewList.classList.add("hidden");
-      generateOcrAudioButton.classList.add("hidden");
-    }
-    await loadOcrDrafts();
-    playerStatus.textContent = "Deleted image draft";
-  } catch {
-    playerStatus.textContent = "Unable to delete image draft";
-  }
+  });
 }
 
 async function generateOcrAudio() {
@@ -728,41 +768,45 @@ async function generateOcrAudio() {
   }
 }
 
-async function deleteOcrDraftImage(draftId, imageId) {
+async function deleteOcrDraftImage(draftId, imageId, button = null) {
   if (!window.confirm("Remove this image from the draft?")) {
     return;
   }
-  try {
-    const response = await fetch(`/api/ocr-drafts/${draftId}/images/${imageId}`, { method: "DELETE" });
-    if (!response.ok) {
+  await withButtonBusy(button, "Removing...", async () => {
+    try {
+      const response = await fetch(`/api/ocr-drafts/${draftId}/images/${imageId}`, { method: "DELETE" });
+      if (!response.ok) {
+        playerStatus.textContent = "Unable to remove image";
+        return;
+      }
+      await openOcrDraft(draftId);
+      await loadOcrDrafts();
+      playerStatus.textContent = "Removed image";
+    } catch {
       playerStatus.textContent = "Unable to remove image";
-      return;
     }
-    await openOcrDraft(draftId);
-    await loadOcrDrafts();
-    playerStatus.textContent = "Removed image";
-  } catch {
-    playerStatus.textContent = "Unable to remove image";
-  }
+  });
 }
 
 async function openGeneration(generationId, options = {}) {
   const settings = { subscribe: false, autoplay: false, ...options };
-  stopPlayback();
-  state.currentGenerationId = generationId;
-  state.currentSegmentIndex = 0;
-  state.autoplay = Boolean(settings.autoplay);
-  state.continuousPlayback = state.autoplay;
-  showView("playback-view");
-  if (settings.subscribe) {
-    subscribeToGeneration(generationId);
-  } else {
-    closeEventSource();
-  }
-  const loaded = await loadGenerationDetail(generationId);
-  if (loaded && state.autoplay) {
-    playSegment(state.currentSegmentIndex);
-  }
+  await withButtonBusy(settings.button, "Opening...", async () => {
+    stopPlayback();
+    state.currentGenerationId = generationId;
+    state.currentSegmentIndex = 0;
+    state.autoplay = Boolean(settings.autoplay);
+    state.continuousPlayback = state.autoplay;
+    showView("playback-view");
+    if (settings.subscribe) {
+      subscribeToGeneration(generationId);
+    } else {
+      closeEventSource();
+    }
+    const loaded = await loadGenerationDetail(generationId);
+    if (loaded && state.autoplay) {
+      playSegment(state.currentSegmentIndex);
+    }
+  });
 }
 
 async function loadGenerationDetail(generationId) {
@@ -1004,10 +1048,14 @@ historyList.addEventListener("click", (event) => {
   }
   const generationId = Number(historyItem.dataset.generationId);
   if (action?.dataset.action === "delete") {
-    deleteGeneration(generationId);
+    deleteGeneration(Number(action.dataset.generationId), action);
     return;
   }
-  if (action?.dataset.action === "open" || !action) {
+  if (action?.dataset.action === "open") {
+    openGeneration(Number(action.dataset.generationId), { subscribe: false, autoplay: true, button: action });
+    return;
+  }
+  if (!action) {
     if (event.target.closest(".history-details") && !action) {
       return;
     }
@@ -1023,16 +1071,16 @@ ocrDraftsList.addEventListener("click", (event) => {
   }
   const draftId = Number(draftItem.dataset.draftId);
   if (action.dataset.action === "delete-draft") {
-    deleteOcrDraft(draftId);
+    deleteOcrDraft(Number(action.dataset.draftId), action);
     return;
   }
   if (action.dataset.action === "open-generation") {
     stopPlayback();
-    openGeneration(Number(action.dataset.generationId), { subscribe: false, autoplay: true });
+    openGeneration(Number(action.dataset.generationId), { subscribe: false, autoplay: true, button: action });
     return;
   }
   if (action.dataset.action === "open-draft") {
-    openOcrDraft(draftId);
+    openOcrDraft(Number(action.dataset.draftId), action);
   }
 });
 
@@ -1043,7 +1091,7 @@ ocrReviewList.addEventListener("click", (event) => {
   if (!action || action.dataset.action !== "delete-image" || !state.currentOcrDraftId) {
     return;
   }
-  deleteOcrDraftImage(state.currentOcrDraftId, Number(action.dataset.imageId));
+  deleteOcrDraftImage(state.currentOcrDraftId, Number(action.dataset.imageId), action);
 });
 
 readingPane.addEventListener("click", (event) => {
@@ -1075,7 +1123,7 @@ languageSelect.addEventListener("change", renderOptions);
 voiceSelect.addEventListener("change", updateVoiceStar);
 voiceStar.addEventListener("click", toggleVoicePreference);
 voiceSample.addEventListener("click", playVoiceSample);
-extractImageTextButton.addEventListener("click", extractImageText);
+extractImageTextButton.addEventListener("click", () => extractImageText(extractImageTextButton));
 generateOcrAudioButton.addEventListener("click", generateOcrAudio);
 
 audioPlayer.addEventListener("play", () => {

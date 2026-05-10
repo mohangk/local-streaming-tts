@@ -57,6 +57,15 @@ def test_frontend_has_image_input_controls():
     assert 'id="ocr-drafts-list"' in html
 
 
+def test_frontend_styles_action_button_feedback_states():
+    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert "button:active" in css
+    assert ".is-busy" in css
+    assert ".is-busy::after" in css
+    assert "aria-busy" in css
+
+
 def test_frontend_does_not_seed_hard_coded_voice_options():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     initial_state = js.split("};", 1)[0]
@@ -79,7 +88,7 @@ def test_frontend_javascript_uses_ocr_draft_endpoints():
 
 def test_frontend_resizes_large_ocr_images_before_upload():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    extractor = js.split("async function extractImageText()", 1)[1].split("async function openOcrDraft", 1)[0]
+    extractor = js.split("async function extractImageText", 1)[1].split("async function openOcrDraft", 1)[0]
 
     assert "prepareOcrImagesForUpload" in extractor
     assert "const OCR_IMAGE_MAX_EDGE = 2048" in js
@@ -91,7 +100,7 @@ def test_frontend_resizes_large_ocr_images_before_upload():
 
 def test_frontend_refreshes_ocr_drafts_after_upload_error():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    extractor = js.split("async function extractImageText()", 1)[1].split("async function openOcrDraft", 1)[0]
+    extractor = js.split("async function extractImageText", 1)[1].split("async function openOcrDraft", 1)[0]
     error_branch = extractor.split("if (!response.ok)", 1)[1].split("return;", 1)[0]
 
     assert "await loadOcrDrafts()" in error_branch
@@ -128,6 +137,31 @@ def test_frontend_marks_ocr_draft_linked_after_generation_success():
     assert "state.currentOcrDraft.linked_generation_id = generationId" in js
     assert "generateOcrAudioButton.classList.add(\"hidden\")" in js
     assert "Audio already generated" in js
+
+
+def test_frontend_wraps_async_button_actions_with_busy_state():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "async function withButtonBusy" in js
+    assert "button.classList.add(\"is-busy\")" in js
+    assert "button.setAttribute(\"aria-busy\", \"true\")" in js
+    assert "button.disabled = true" in js
+    assert "button.classList.remove(\"is-busy\")" in js
+    assert "button.removeAttribute(\"aria-busy\")" in js
+
+
+def test_frontend_history_and_ocr_actions_pass_buttons_for_feedback():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "extractImageTextButton.addEventListener(\"click\", () => extractImageText(extractImageTextButton))" in js
+    assert "async function extractImageText(button = null)" in js
+    assert "withButtonBusy(button, \"Extracting...\"" in js
+    assert "openGeneration(Number(action.dataset.generationId)" in js
+    assert "button: action" in js
+    assert "deleteGeneration(Number(action.dataset.generationId), action)" in js
+    assert "openOcrDraft(Number(action.dataset.draftId), action)" in js
+    assert "deleteOcrDraft(Number(action.dataset.draftId), action)" in js
+    assert "deleteOcrDraftImage(state.currentOcrDraftId, Number(action.dataset.imageId), action)" in js
 
 
 def test_frontend_voice_sample_marks_sample_playback_state():
