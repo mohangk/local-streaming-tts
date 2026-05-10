@@ -414,6 +414,10 @@ function renderOcrReview() {
     ocrReviewList.innerHTML = "";
     return;
   }
+  if (!draft.images || draft.images.length === 0) {
+    ocrReviewList.innerHTML = '<div class="history-item">No images stored for this draft</div>';
+    return;
+  }
   ocrReviewList.innerHTML = (draft.images || [])
     .map((image) => {
       const error = image.error ? `<div class="history-item-url">${escapeHtml(image.error)}</div>` : "";
@@ -559,6 +563,7 @@ async function deleteOcrDraft(draftId) {
       generateOcrAudioButton.classList.add("hidden");
     }
     await loadOcrDrafts();
+    playerStatus.textContent = "Deleted image draft";
   } catch {
     playerStatus.textContent = "Unable to delete image draft";
   }
@@ -618,6 +623,7 @@ async function deleteOcrDraftImage(draftId, imageId) {
     }
     await openOcrDraft(draftId);
     await loadOcrDrafts();
+    playerStatus.textContent = "Removed image";
   } catch {
     playerStatus.textContent = "Unable to remove image";
   }

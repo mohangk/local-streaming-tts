@@ -93,6 +93,18 @@ def test_frontend_renders_thumbnails_and_per_image_review_controls():
     assert "data-image-id" in renderer
     assert "data-action=\"delete-image\"" in renderer
     assert "ocr-image-text" in renderer
+    assert "No images stored for this draft" in renderer
+
+
+def test_frontend_reports_successful_ocr_deletes_without_reading_204_body():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    draft_deleter = js.split("async function deleteOcrDraft", 1)[1].split("async function generateOcrAudio", 1)[0]
+    image_deleter = js.split("async function deleteOcrDraftImage", 1)[1].split("async function openGeneration", 1)[0]
+
+    assert "await response.json()" not in draft_deleter
+    assert "await response.json()" not in image_deleter
+    assert "Deleted image draft" in draft_deleter
+    assert "Removed image" in image_deleter
 
 
 def test_frontend_voice_sample_marks_sample_playback_state():

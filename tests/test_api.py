@@ -515,6 +515,22 @@ def test_ocr_image_endpoint_serves_stored_image(test_settings):
     assert response.headers["content-type"].startswith("image/")
 
 
+def test_ocr_image_endpoint_uses_configured_image_dir(test_settings, tmp_path):
+    settings = replace(test_settings, image_dir=tmp_path / "custom-images")
+    client = TestClient(create_app(settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+    image = draft["images"][0]
+
+    response = client.get(f"/api/ocr-drafts/{draft['id']}/images/{image['id']}")
+
+    assert response.status_code == 200
+    assert response.content == b"fake-image"
+    assert (settings.image_dir / str(draft["id"]) / str(image["id"]) / "source.png").exists()
+
+
 def test_delete_ocr_draft_image_removes_file(test_settings):
     client = TestClient(create_app(test_settings, run_background_inline=True))
     draft = client.post(

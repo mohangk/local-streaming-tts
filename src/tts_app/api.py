@@ -282,7 +282,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             image = storage.get_ocr_draft_image(draft_id, image_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="ocr draft image not found") from exc
-        path = active_settings.data_dir / image["image_path"]
+        path = _stored_ocr_image_path(active_settings, image)
         if not path.exists():
             raise HTTPException(status_code=404, detail="ocr draft image file not found")
         return FileResponse(path, media_type=image["mime_type"], stat_result=path.stat())
@@ -308,7 +308,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             raise HTTPException(status_code=404, detail="ocr draft image not found") from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        shutil.rmtree((active_settings.data_dir / image["image_path"]).parent, ignore_errors=True)
+        shutil.rmtree(_stored_ocr_image_path(active_settings, image).parent, ignore_errors=True)
         logger.info("ocr_draft_image_deleted draft_id=%s image_id=%s", draft_id, image_id)
         return Response(status_code=204)
 
@@ -557,6 +557,17 @@ def _default_voice_for_language(settings: Settings, language: str) -> str:
 
 def _tts_language_for_ocr_language(language: str) -> str:
     return SAMPLE_LANGUAGES.get(language, "Auto")
+
+
+def _stored_ocr_image_path(settings: Settings, image: dict[str, object]) -> Path:
+    image_path = str(image["image_path"])
+    data_path = settings.data_dir / image_path
+    if data_path.exists():
+        return data_path
+    parts = Path(image_path).parts
+    if parts and parts[0] == "images":
+        return settings.image_dir.joinpath(*parts[1:])
+    return settings.image_dir / image_path
 
 
 async def _read_ocr_uploads(images: list[UploadFile], max_image_bytes: int) -> list[dict[str, bytes | str | None]]:

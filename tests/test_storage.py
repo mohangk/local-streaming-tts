@@ -554,6 +554,24 @@ def test_invalid_ocr_draft_language_is_rejected(test_settings):
         storage.update_ocr_draft(draft_id, language="fr", image_texts={})
 
 
+def test_init_schema_marks_empty_running_ocr_drafts_failed(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    with storage.connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO ocr_drafts (ocr_model, language, status)
+            VALUES ('fake-ocr', 'en', 'running')
+            """
+        )
+
+    storage.init_schema()
+
+    draft = storage.list_ocr_drafts()[0]
+    assert draft["status"] == "failed"
+    assert draft["error"] == "OCR draft has no images"
+
+
 def test_delete_ocr_draft_image_reorders_remaining_images(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()

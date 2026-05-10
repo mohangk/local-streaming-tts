@@ -119,6 +119,7 @@ class Storage:
             self._ensure_generation_source_type_allows_image(conn)
             self._ensure_generation_progress_columns(conn)
             self._ensure_ocr_draft_document_schema(conn)
+            self._mark_empty_running_ocr_drafts_failed(conn)
             self._ensure_voice_preferences_language_key(conn)
             conn.execute(
                 """
@@ -234,6 +235,21 @@ class Storage:
     def _validate_ocr_language(self, language: str) -> None:
         if language not in {"en", "zh"}:
             raise ValueError("ocr draft language must be en or zh")
+
+    def _mark_empty_running_ocr_drafts_failed(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            UPDATE ocr_drafts
+            SET status = 'failed',
+                error = 'OCR draft has no images',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE status IN ('queued', 'running')
+              AND NOT EXISTS (
+                  SELECT 1 FROM ocr_draft_images
+                  WHERE ocr_draft_images.ocr_draft_id = ocr_drafts.id
+              )
+            """
+        )
 
     def _validate_voice_language(self, language: str) -> None:
         if language not in {"en", "zh"}:
