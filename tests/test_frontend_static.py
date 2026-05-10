@@ -155,9 +155,20 @@ def test_frontend_marks_ocr_draft_linked_after_generation_success():
 
     assert "markCurrentOcrDraftLinked(result.generation_id)" in generator
     assert "function markCurrentOcrDraftLinked" in js
+    linked_helper = js.split("function markCurrentOcrDraftLinked", 1)[1].split("function renderOcrReview", 1)[0]
     assert "state.currentOcrDraft.linked_generation_id = generationId" in js
     assert "generateOcrAudioButton.classList.add(\"hidden\")" in js
+    assert "renderOcrReview()" in linked_helper
     assert "Audio already generated" in js
+
+
+def test_frontend_hides_linked_ocr_drafts_from_image_generation_list():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    renderer = js.split("function renderOcrDrafts()", 1)[1].split("function pendingImageLabel", 1)[0]
+
+    assert "unlinkedDrafts" in renderer
+    assert "draft.linked_generation_id" in renderer
+    assert "No image drafts" in renderer
 
 
 def test_frontend_wraps_async_button_actions_with_busy_state():

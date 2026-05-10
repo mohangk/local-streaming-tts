@@ -462,6 +462,7 @@ function markCurrentOcrDraftLinked(generationId) {
   generateOcrAudioButton.classList.add("hidden");
   generateOcrAudioButton.disabled = true;
   playerStatus.textContent = "Audio already generated";
+  renderOcrReview();
   renderOcrDrafts();
 }
 
@@ -530,11 +531,12 @@ function renderOcrDrafts() {
   if (state.inputMode !== "image") {
     return;
   }
-  if (state.ocrDrafts.length === 0) {
+  const unlinkedDrafts = state.ocrDrafts.filter((draft) => !draft.linked_generation_id);
+  if (unlinkedDrafts.length === 0) {
     ocrDraftsList.innerHTML = '<div class="history-item">No image drafts</div>';
     return;
   }
-  ocrDraftsList.innerHTML = state.ocrDrafts
+  ocrDraftsList.innerHTML = unlinkedDrafts
     .map((draft) => {
       const created = draft.created_at ? new Date(`${draft.created_at}Z`).toLocaleString() : "";
       const filenames = (draft.images || []).map((image) => image.original_filename).filter(Boolean).join(", ");
