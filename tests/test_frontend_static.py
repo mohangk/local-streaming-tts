@@ -50,8 +50,14 @@ def test_frontend_has_image_input_controls():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     assert 'id="image-mode"' in html
-    assert 'id="image-input"' in html
+    assert 'id="image-camera-input"' in html
+    assert 'id="image-upload-input"' in html
+    assert 'id="take-image-photo"' in html
+    assert 'id="upload-image-files"' in html
+    assert 'id="clear-image-selection"' in html
+    assert 'id="image-selection-list"' in html
     assert 'accept="image/*"' in html
+    assert 'capture="environment"' in html
     assert "multiple" in html
     assert 'id="ocr-review-list"' in html
     assert 'id="ocr-drafts-list"' in html
@@ -82,8 +88,22 @@ def test_frontend_javascript_uses_ocr_draft_endpoints():
     assert "FormData" in js
     assert "ocr-review-list" in js
     assert "/generation" in js
-    assert "imageInput.files" in js
+    assert "state.pendingOcrImages" in js
     assert "forEach((image)" in js
+
+
+def test_frontend_queues_camera_and_uploaded_images_before_ocr():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "pendingOcrImages: []" in js
+    assert 'document.querySelector("#image-camera-input")' in js
+    assert 'document.querySelector("#image-upload-input")' in js
+    assert 'document.querySelector("#take-image-photo")' in js
+    assert 'document.querySelector("#upload-image-files")' in js
+    assert "appendPendingOcrImages(Array.from(imageCameraInput.files || []))" in js
+    assert "appendPendingOcrImages(Array.from(imageUploadInput.files || []))" in js
+    assert "renderPendingOcrImages()" in js
+    assert "clearPendingOcrImages" in js
 
 
 def test_frontend_resizes_large_ocr_images_before_upload():
@@ -91,6 +111,7 @@ def test_frontend_resizes_large_ocr_images_before_upload():
     extractor = js.split("async function extractImageText", 1)[1].split("async function openOcrDraft", 1)[0]
 
     assert "prepareOcrImagesForUpload" in extractor
+    assert "state.pendingOcrImages" in extractor
     assert "const OCR_IMAGE_MAX_EDGE = 2048" in js
     assert "const OCR_IMAGE_JPEG_QUALITY = 0.85" in js
     assert "canvas.toBlob" in js

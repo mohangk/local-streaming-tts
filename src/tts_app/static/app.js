@@ -2,6 +2,7 @@ const state = {
   inputMode: "text",
   generations: [],
   ocrDrafts: [],
+  pendingOcrImages: [],
   currentOcrDraftId: null,
   currentOcrDraft: null,
   currentGenerationId: null,
@@ -32,11 +33,16 @@ const urlModeButton = document.querySelector("#url-mode");
 const imageModeButton = document.querySelector("#image-mode");
 const textInput = document.querySelector("#text-input");
 const urlInput = document.querySelector("#url-input");
-const imageInput = document.querySelector("#image-input");
+const imageCameraInput = document.querySelector("#image-camera-input");
+const imageUploadInput = document.querySelector("#image-upload-input");
 const textLabel = document.querySelector("#text-label");
 const urlLabel = document.querySelector("#url-label");
 const imageActions = document.querySelector("#image-actions");
+const takeImagePhotoButton = document.querySelector("#take-image-photo");
+const uploadImageFilesButton = document.querySelector("#upload-image-files");
+const clearImageSelectionButton = document.querySelector("#clear-image-selection");
 const extractImageTextButton = document.querySelector("#extract-image-text");
+const imageSelectionList = document.querySelector("#image-selection-list");
 const ocrReviewList = document.querySelector("#ocr-review-list");
 const generateOcrAudioButton = document.querySelector("#generate-ocr-audio");
 const ocrDraftsList = document.querySelector("#ocr-drafts-list");
@@ -81,9 +87,12 @@ function setInputMode(mode) {
   textLabel.classList.toggle("hidden", !isText);
   urlInput.classList.toggle("hidden", !isUrl);
   urlLabel.classList.toggle("hidden", !isUrl);
-  imageInput.classList.toggle("hidden", !isImage);
+  imageCameraInput.classList.add("hidden");
+  imageUploadInput.classList.add("hidden");
   imageActions.classList.toggle("hidden", !isImage);
-  extractImageTextButton.classList.toggle("hidden", !isImage);
+  imageSelectionList.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
+  clearImageSelectionButton.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
+  extractImageTextButton.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
   ocrReviewList.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
   generateOcrAudioButton.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
   ocrDraftsList.classList.toggle("hidden", !isImage);
@@ -549,6 +558,61 @@ function renderOcrDrafts() {
     .join("");
 }
 
+function pendingImageLabel(file, index) {
+  const name = file.name || `Image ${index + 1}`;
+  const size = file.size ? ` ${Math.round(file.size / 1024)} KB` : "";
+  return `${index + 1}. ${name}${size}`;
+}
+
+function renderPendingOcrImages() {
+  const hasImages = state.pendingOcrImages.length > 0;
+  const isImageMode = state.inputMode === "image";
+  imageSelectionList.classList.toggle("hidden", !isImageMode || !hasImages);
+  clearImageSelectionButton.classList.toggle("hidden", !isImageMode || !hasImages);
+  extractImageTextButton.classList.toggle("hidden", !isImageMode || !hasImages);
+  if (!hasImages) {
+    imageSelectionList.innerHTML = "";
+    return;
+  }
+  imageSelectionList.innerHTML = state.pendingOcrImages
+    .map(
+      (image, index) => `
+        <div class="image-selection-item">
+          <span class="image-selection-name">${escapeHtml(pendingImageLabel(image, index))}</span>
+          <button class="danger-action compact-action" type="button" data-action="remove-pending-image" data-index="${index}">Remove</button>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function appendPendingOcrImages(images) {
+  if (images.length === 0) {
+    return;
+  }
+  state.pendingOcrImages.push(...images);
+  renderPendingOcrImages();
+  playerStatus.textContent = `${state.pendingOcrImages.length} ${state.pendingOcrImages.length === 1 ? "image" : "images"} selected`;
+}
+
+function removePendingOcrImage(index) {
+  state.pendingOcrImages.splice(index, 1);
+  renderPendingOcrImages();
+  playerStatus.textContent = state.pendingOcrImages.length
+    ? `${state.pendingOcrImages.length} ${state.pendingOcrImages.length === 1 ? "image" : "images"} selected`
+    : "No images selected";
+}
+
+function clearPendingOcrImages(options = {}) {
+  state.pendingOcrImages = [];
+  imageCameraInput.value = "";
+  imageUploadInput.value = "";
+  renderPendingOcrImages();
+  if (!options.silent) {
+    playerStatus.textContent = "No images selected";
+  }
+}
+
 function resizedImageFilename(file) {
   const stem = (file.name || "image").replace(/\.[^.]*$/, "") || "image";
   return `${stem}.jpg`;
@@ -636,7 +700,7 @@ async function prepareOcrImagesForUpload(images) {
 }
 
 async function extractImageText(button = null) {
-  const images = Array.from(imageInput.files || []);
+  const images = state.pendingOcrImages.slice();
   if (images.length === 0) {
     return;
   }
@@ -668,6 +732,7 @@ async function extractImageText(button = null) {
       }
       const draft = await response.json();
       showOcrDraft(draft);
+      clearPendingOcrImages({ silent: true });
       await loadOcrDrafts();
     } catch {
       playerStatus.textContent = "Image text extraction failed";
@@ -1123,6 +1188,24 @@ languageSelect.addEventListener("change", renderOptions);
 voiceSelect.addEventListener("change", updateVoiceStar);
 voiceStar.addEventListener("click", toggleVoicePreference);
 voiceSample.addEventListener("click", playVoiceSample);
+takeImagePhotoButton.addEventListener("click", () => imageCameraInput.click());
+uploadImageFilesButton.addEventListener("click", () => imageUploadInput.click());
+clearImageSelectionButton.addEventListener("click", clearPendingOcrImages);
+imageCameraInput.addEventListener("change", () => {
+  appendPendingOcrImages(Array.from(imageCameraInput.files || []));
+  imageCameraInput.value = "";
+});
+imageUploadInput.addEventListener("change", () => {
+  appendPendingOcrImages(Array.from(imageUploadInput.files || []));
+  imageUploadInput.value = "";
+});
+imageSelectionList.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-action]");
+  if (!action || action.dataset.action !== "remove-pending-image") {
+    return;
+  }
+  removePendingOcrImage(Number(action.dataset.index));
+});
 extractImageTextButton.addEventListener("click", () => extractImageText(extractImageTextButton));
 generateOcrAudioButton.addEventListener("click", generateOcrAudio);
 

@@ -33,8 +33,12 @@ textarea { resize: vertical; min-height: 220px; }
 .option-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .option-grid label { display: grid; gap: 6px; }
 .voice-row, .image-actions { display: flex; gap: 0.5rem; align-items: center; }
+.image-actions { flex-wrap: wrap; }
 .voice-row select { flex: 1; min-width: 0; }
 .icon-action { min-width: 2.75rem; min-height: 2.75rem; }
+.image-selection-list { display: grid; gap: 8px; }
+.image-selection-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; border: 1px solid #d8dde6; border-radius: 8px; background: #ffffff; padding: 8px 10px; }
+.image-selection-name { overflow-wrap: anywhere; color: #333948; font-size: 0.92rem; }
 .ocr-review-list { display: grid; gap: 12px; }
 .ocr-image-card { display: grid; gap: 10px; border: 1px solid #d8dde6; border-radius: 8px; background: #ffffff; padding: 10px; }
 .ocr-image-header { display: grid; grid-template-columns: 84px 1fr auto; gap: 10px; align-items: center; }

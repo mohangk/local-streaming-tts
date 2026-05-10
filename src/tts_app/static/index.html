@@ -20,10 +20,15 @@
           <textarea id="text-input" rows="9" aria-label="Text to read aloud"></textarea>
           <label id="url-label" class="field-label hidden" for="url-input">URL</label>
           <input id="url-input" class="hidden" type="url" aria-label="Page URL" />
-          <input id="image-input" class="hidden" type="file" accept="image/*" capture="environment" multiple aria-label="Images to OCR" />
+          <input id="image-camera-input" class="hidden" type="file" accept="image/*" capture="environment" aria-label="Take photo for OCR" />
+          <input id="image-upload-input" class="hidden" type="file" accept="image/*" multiple aria-label="Upload images for OCR" />
           <div id="image-actions" class="image-actions hidden">
+            <button id="take-image-photo" class="secondary-action" type="button">Take photo</button>
+            <button id="upload-image-files" class="secondary-action" type="button">Upload images</button>
+            <button id="clear-image-selection" class="secondary-action hidden" type="button">Clear</button>
             <button id="extract-image-text" class="secondary-action hidden" type="button">Extract text</button>
           </div>
+          <div id="image-selection-list" class="image-selection-list hidden" aria-live="polite"></div>
           <div id="ocr-review-list" class="ocr-review-list hidden"></div>
           <button id="generate-ocr-audio" class="primary-action hidden" type="button">Generate audio</button>
           <div id="ocr-drafts-list" class="history-list"></div>
