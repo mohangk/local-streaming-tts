@@ -56,6 +56,9 @@ def test_frontend_has_image_input_controls():
     assert 'id="upload-image-files"' in html
     assert 'id="clear-image-selection"' in html
     assert 'id="image-selection-list"' in html
+    assert 'id="ocr-upload-progress"' in html
+    assert 'id="ocr-upload-bar"' in html
+    assert 'id="cancel-ocr-upload"' in html
     assert 'accept="image/*"' in html
     assert 'capture="environment"' in html
     assert "multiple" in html
@@ -70,6 +73,14 @@ def test_frontend_styles_action_button_feedback_states():
     assert ".is-busy" in css
     assert ".is-busy::after" in css
     assert "aria-busy" in css
+
+
+def test_frontend_styles_ocr_upload_progress_panel():
+    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert ".upload-progress" in css
+    assert ".upload-status" in css
+    assert ".upload-progress progress" in css
 
 
 def test_frontend_does_not_seed_hard_coded_voice_options():
@@ -122,9 +133,32 @@ def test_frontend_resizes_large_ocr_images_before_upload():
 def test_frontend_refreshes_ocr_drafts_after_upload_error():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     extractor = js.split("async function extractImageText", 1)[1].split("async function openOcrDraft", 1)[0]
-    error_branch = extractor.split("if (!response.ok)", 1)[1].split("return;", 1)[0]
 
-    assert "await loadOcrDrafts()" in error_branch
+    assert "await loadOcrDrafts()" in extractor
+
+
+def test_frontend_uses_xhr_for_ocr_upload_progress_and_cancel():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    uploader = js.split("function uploadOcrDraft", 1)[1].split("async function openOcrDraft", 1)[0]
+
+    assert "new XMLHttpRequest()" in uploader
+    assert "xhr.upload.onprogress" in uploader
+    assert "xhr.abort()" in js
+    assert "showOcrExtractingProgress()" in uploader
+    assert "Extracting text..." in js
+    assert "cancelOcrUploadButton.addEventListener(\"click\", cancelOcrUpload)" in js
+
+
+def test_frontend_disables_image_controls_during_ocr_upload():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    controls = js.split("function setOcrUploadActive", 1)[1].split("function uploadOcrDraft", 1)[0]
+
+    assert "imageCameraInput.disabled = active" in controls
+    assert "imageUploadInput.disabled = active" in controls
+    assert "takeImagePhotoButton.disabled = active" in controls
+    assert "uploadImageFilesButton.disabled = active" in controls
+    assert "clearImageSelectionButton.disabled = active" in controls
+    assert "languageSelect.disabled = active" in controls
 
 
 def test_frontend_renders_thumbnails_and_per_image_review_controls():

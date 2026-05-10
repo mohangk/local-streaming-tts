@@ -39,6 +39,9 @@ textarea { resize: vertical; min-height: 220px; }
 .image-selection-list { display: grid; gap: 8px; }
 .image-selection-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; border: 1px solid #d8dde6; border-radius: 8px; background: #ffffff; padding: 8px 10px; }
 .image-selection-name { overflow-wrap: anywhere; color: #333948; font-size: 0.92rem; }
+.upload-progress { display: grid; gap: 8px; border: 1px solid #c8ced8; border-radius: 8px; background: #ffffff; padding: 10px; }
+.upload-status { color: #333948; font-size: 0.92rem; }
+.upload-progress progress { width: 100%; height: 0.75rem; }
 .ocr-review-list { display: grid; gap: 12px; }
 .ocr-image-card { display: grid; gap: 10px; border: 1px solid #d8dde6; border-radius: 8px; background: #ffffff; padding: 10px; }
 .ocr-image-header { display: grid; grid-template-columns: 84px 1fr auto; gap: 10px; align-items: center; }

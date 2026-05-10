@@ -3,6 +3,9 @@ const state = {
   generations: [],
   ocrDrafts: [],
   pendingOcrImages: [],
+  ocrUploadXhr: null,
+  ocrUploadActive: false,
+  ocrUploadCancelled: false,
   currentOcrDraftId: null,
   currentOcrDraft: null,
   currentGenerationId: null,
@@ -43,6 +46,10 @@ const uploadImageFilesButton = document.querySelector("#upload-image-files");
 const clearImageSelectionButton = document.querySelector("#clear-image-selection");
 const extractImageTextButton = document.querySelector("#extract-image-text");
 const imageSelectionList = document.querySelector("#image-selection-list");
+const ocrUploadProgress = document.querySelector("#ocr-upload-progress");
+const ocrUploadStatus = document.querySelector("#ocr-upload-status");
+const ocrUploadBar = document.querySelector("#ocr-upload-bar");
+const cancelOcrUploadButton = document.querySelector("#cancel-ocr-upload");
 const ocrReviewList = document.querySelector("#ocr-review-list");
 const generateOcrAudioButton = document.querySelector("#generate-ocr-audio");
 const ocrDraftsList = document.querySelector("#ocr-drafts-list");
@@ -615,6 +622,94 @@ function clearPendingOcrImages(options = {}) {
   }
 }
 
+function showOcrUploadProgress(message, percent = null) {
+  ocrUploadProgress.classList.remove("hidden");
+  ocrUploadStatus.textContent = message;
+  if (percent === null) {
+    ocrUploadBar.removeAttribute("value");
+    return;
+  }
+  ocrUploadBar.value = Math.max(0, Math.min(100, percent));
+}
+
+function showOcrExtractingProgress() {
+  showOcrUploadProgress("Extracting text...");
+}
+
+function clearOcrUploadProgress() {
+  ocrUploadProgress.classList.add("hidden");
+  ocrUploadStatus.textContent = "Preparing images...";
+  ocrUploadBar.value = 0;
+}
+
+function showOcrUploadError(message) {
+  ocrUploadProgress.classList.remove("hidden");
+  ocrUploadStatus.textContent = message;
+  ocrUploadBar.value = 0;
+}
+
+function setOcrUploadActive(active) {
+  state.ocrUploadActive = active;
+  if (active) {
+    state.ocrUploadCancelled = false;
+  } else {
+    state.ocrUploadXhr = null;
+  }
+  imageCameraInput.disabled = active;
+  imageUploadInput.disabled = active;
+  takeImagePhotoButton.disabled = active;
+  uploadImageFilesButton.disabled = active;
+  clearImageSelectionButton.disabled = active;
+  languageSelect.disabled = active;
+  cancelOcrUploadButton.disabled = !active;
+}
+
+function cancelOcrUpload() {
+  state.ocrUploadCancelled = true;
+  if (state.ocrUploadXhr) {
+    const xhr = state.ocrUploadXhr;
+    xhr.abort();
+    return;
+  }
+  setOcrUploadActive(false);
+  showOcrUploadError("Image upload cancelled");
+}
+
+function uploadOcrDraft(formData) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    state.ocrUploadXhr = xhr;
+    xhr.open("POST", "/api/ocr-drafts");
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) {
+        showOcrUploadProgress("Uploading images...");
+        return;
+      }
+      const percent = Math.round((event.loaded / event.total) * 100);
+      showOcrUploadProgress(`Uploading images: ${percent}%`, percent);
+    };
+    xhr.upload.onload = () => {
+      showOcrExtractingProgress();
+    };
+    xhr.onload = () => {
+      let body = {};
+      try {
+        body = JSON.parse(xhr.responseText || "{}");
+      } catch {
+        body = {};
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(body);
+        return;
+      }
+      reject(new Error(body.detail || "Image text extraction failed"));
+    };
+    xhr.onerror = () => reject(new Error("Image text extraction failed"));
+    xhr.onabort = () => reject(new Error("Image upload cancelled"));
+    xhr.send(formData);
+  });
+}
+
 function resizedImageFilename(file) {
   const stem = (file.name || "image").replace(/\.[^.]*$/, "") || "image";
   return `${stem}.jpg`;
@@ -708,11 +803,20 @@ async function extractImageText(button = null) {
   }
   await withButtonBusy(button, "Extracting...", async () => {
     stopPlayback();
+    setOcrUploadActive(true);
+    showOcrUploadProgress(`Preparing ${images.length} ${images.length === 1 ? "image" : "images"}...`, 0);
     let uploadImages;
     try {
       uploadImages = await prepareOcrImagesForUpload(images);
     } catch {
       playerStatus.textContent = "Unable to prepare image for upload";
+      showOcrUploadError("Unable to prepare image for upload");
+      setOcrUploadActive(false);
+      return;
+    }
+    if (state.ocrUploadCancelled) {
+      playerStatus.textContent = "Image upload cancelled";
+      showOcrUploadError("Image upload cancelled");
       return;
     }
     const formData = new FormData();
@@ -722,22 +826,19 @@ async function extractImageText(button = null) {
     formData.append("language", currentLanguage());
     playerStatus.textContent = "Extracting image text";
     try {
-      const response = await fetch("/api/ocr-drafts", {
-        method: "POST",
-        body: formData,
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        playerStatus.textContent = error.detail || "Image text extraction failed";
-        await loadOcrDrafts();
-        return;
-      }
-      const draft = await response.json();
+      const draft = await uploadOcrDraft(formData);
       showOcrDraft(draft);
       clearPendingOcrImages({ silent: true });
+      clearOcrUploadProgress();
       await loadOcrDrafts();
-    } catch {
-      playerStatus.textContent = "Image text extraction failed";
+    } catch (error) {
+      const message = error.message || "Image text extraction failed";
+      playerStatus.textContent = message;
+      showOcrUploadError(message);
+      await loadOcrDrafts();
+    } finally {
+      setOcrUploadActive(false);
+      state.ocrUploadCancelled = false;
     }
   });
 }
@@ -1208,6 +1309,7 @@ imageSelectionList.addEventListener("click", (event) => {
   }
   removePendingOcrImage(Number(action.dataset.index));
 });
+cancelOcrUploadButton.addEventListener("click", cancelOcrUpload);
 extractImageTextButton.addEventListener("click", () => extractImageText(extractImageTextButton));
 generateOcrAudioButton.addEventListener("click", generateOcrAudio);
 
