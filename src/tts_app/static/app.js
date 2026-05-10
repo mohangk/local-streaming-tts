@@ -411,6 +411,17 @@ function showOcrDraft(draft) {
   updateGenerateOcrAudioState();
 }
 
+function markCurrentOcrDraftLinked(generationId) {
+  if (!state.currentOcrDraft) {
+    return;
+  }
+  state.currentOcrDraft.linked_generation_id = generationId;
+  generateOcrAudioButton.classList.add("hidden");
+  generateOcrAudioButton.disabled = true;
+  playerStatus.textContent = "Audio already generated";
+  renderOcrDrafts();
+}
+
 function renderOcrReview() {
   const draft = state.currentOcrDraft;
   if (!draft) {
@@ -454,7 +465,8 @@ function hasReviewedOcrText() {
 }
 
 function updateGenerateOcrAudioState() {
-  generateOcrAudioButton.disabled = !state.currentOcrDraftId || !hasReviewedOcrText();
+  generateOcrAudioButton.disabled =
+    !state.currentOcrDraftId || Boolean(state.currentOcrDraft?.linked_generation_id) || !hasReviewedOcrText();
 }
 
 async function loadOcrDrafts() {
@@ -666,7 +678,7 @@ async function deleteOcrDraft(draftId) {
 }
 
 async function generateOcrAudio() {
-  if (!state.currentOcrDraftId || !hasReviewedOcrText()) {
+  if (!state.currentOcrDraftId || state.currentOcrDraft?.linked_generation_id || !hasReviewedOcrText()) {
     return;
   }
   stopPlayback();
@@ -696,10 +708,19 @@ async function generateOcrAudio() {
     });
     if (!response.ok) {
       const error = await response.json();
+      if (response.status === 409) {
+        const refreshed = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}`);
+        if (refreshed.ok) {
+          showOcrDraft(await refreshed.json());
+        }
+        playerStatus.textContent = error.detail || "Audio already generated";
+        return;
+      }
       playerStatus.textContent = error.detail || "Image audio generation failed";
       return;
     }
     const result = await response.json();
+    markCurrentOcrDraftLinked(result.generation_id);
     await loadOcrDrafts();
     await openGeneration(result.generation_id, { subscribe: true, autoplay: state.autoplay });
   } catch {

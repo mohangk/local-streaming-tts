@@ -119,6 +119,17 @@ def test_frontend_reports_successful_ocr_deletes_without_reading_204_body():
     assert "Removed image" in image_deleter
 
 
+def test_frontend_marks_ocr_draft_linked_after_generation_success():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    generator = js.split("async function generateOcrAudio()", 1)[1].split("async function deleteOcrDraftImage", 1)[0]
+
+    assert "markCurrentOcrDraftLinked(result.generation_id)" in generator
+    assert "function markCurrentOcrDraftLinked" in js
+    assert "state.currentOcrDraft.linked_generation_id = generationId" in js
+    assert "generateOcrAudioButton.classList.add(\"hidden\")" in js
+    assert "Audio already generated" in js
+
+
 def test_frontend_voice_sample_marks_sample_playback_state():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     sampler = js.split("async function playVoiceSample()", 1)[1].split("async function loadHistory()", 1)[0]
