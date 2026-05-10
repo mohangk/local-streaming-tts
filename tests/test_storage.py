@@ -464,7 +464,7 @@ def test_update_ocr_draft_image_text_and_language(test_settings):
     assert draft["language"] == "zh"
 
 
-def test_init_schema_migrates_existing_ocr_draft_language_check(test_settings):
+def test_init_schema_resets_incompatible_ocr_tables(test_settings):
     test_settings.db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(test_settings.db_path)
     try:
@@ -502,6 +502,22 @@ def test_init_schema_migrates_existing_ocr_draft_language_check(test_settings):
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE ocr_draft_images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ocr_draft_id INTEGER NOT NULL REFERENCES "ocr_drafts_old"(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL CHECK (position >= 0),
+                image_path TEXT NOT NULL,
+                original_filename TEXT,
+                mime_type TEXT NOT NULL,
+                byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+                extracted_text TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+                error TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ocr_draft_id, position)
+            );
             """
         )
         conn.execute(
@@ -512,14 +528,6 @@ def test_init_schema_migrates_existing_ocr_draft_language_check(test_settings):
             """,
             ("images/1/source.png", "valid.png", "image/png", 10, "fake-ocr", "zh", "valid", "completed"),
         )
-        conn.execute(
-            """
-            INSERT INTO ocr_drafts
-                (image_path, original_filename, mime_type, byte_size, ocr_model, language, extracted_text, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            ("images/2/source.png", "invalid.png", "image/png", 12, "fake-ocr", "fr", "invalid", "completed"),
-        )
         conn.commit()
     finally:
         conn.close()
@@ -527,10 +535,21 @@ def test_init_schema_migrates_existing_ocr_draft_language_check(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
 
-    drafts = storage.list_ocr_drafts()
-    assert [draft["language"] for draft in drafts] == ["en", "zh"]
+    assert storage.list_ocr_drafts() == []
 
     with storage.connection() as conn:
+        table_sql = conn.execute(
+            """
+            SELECT group_concat(sql, '\n')
+            FROM sqlite_master
+            WHERE type = 'table' AND name IN ('ocr_drafts', 'ocr_draft_images')
+            """
+        ).fetchone()[0]
+        assert "ocr_drafts_old" not in table_sql
+
+        image_foreign_keys = conn.execute("PRAGMA foreign_key_list(ocr_draft_images)").fetchall()
+        assert {row["table"] for row in image_foreign_keys if row["from"] == "ocr_draft_id"} == {"ocr_drafts"}
+
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 """

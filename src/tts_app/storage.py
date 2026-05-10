@@ -80,33 +80,6 @@ class Storage:
                     UNIQUE(generation_id, segment_index)
                 );
 
-                CREATE TABLE IF NOT EXISTS ocr_drafts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ocr_model TEXT NOT NULL,
-                    language TEXT NOT NULL CHECK (language IN ('en', 'zh')),
-                    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'partial_failed', 'failed')),
-                    error TEXT,
-                    linked_generation_id INTEGER REFERENCES generations(id) ON DELETE SET NULL,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-
-                CREATE TABLE IF NOT EXISTS ocr_draft_images (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ocr_draft_id INTEGER NOT NULL REFERENCES ocr_drafts(id) ON DELETE CASCADE,
-                    position INTEGER NOT NULL CHECK (position >= 0),
-                    image_path TEXT NOT NULL,
-                    original_filename TEXT,
-                    mime_type TEXT NOT NULL,
-                    byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
-                    extracted_text TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
-                    error TEXT,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(ocr_draft_id, position)
-                );
-
                 CREATE TABLE IF NOT EXISTS voice_preferences (
                     voice TEXT NOT NULL,
                     language TEXT NOT NULL CHECK (language IN ('en', 'zh')),
@@ -118,7 +91,8 @@ class Storage:
             )
             self._ensure_generation_source_type_allows_image(conn)
             self._ensure_generation_progress_columns(conn)
-            self._ensure_ocr_draft_document_schema(conn)
+            self._drop_incompatible_ocr_tables(conn)
+            self._create_ocr_tables(conn)
             self._mark_empty_running_ocr_drafts_failed(conn)
             self._ensure_voice_preferences_language_key(conn)
             conn.execute(
@@ -169,25 +143,10 @@ class Storage:
         if "progress_percent" not in columns:
             conn.execute("ALTER TABLE generations ADD COLUMN progress_percent INTEGER NOT NULL DEFAULT 0")
 
-    def _ensure_ocr_draft_document_schema(self, conn: sqlite3.Connection) -> None:
-        row = conn.execute(
-            """
-            SELECT sql FROM sqlite_master
-            WHERE type = 'table' AND name = 'ocr_drafts'
-            """
-        ).fetchone()
-        if row is None or row["sql"] is None:
-            return
-
-        columns = {column["name"] for column in conn.execute("PRAGMA table_info(ocr_drafts)").fetchall()}
-        if "image_path" not in columns:
-            return
-
+    def _create_ocr_tables(self, conn: sqlite3.Connection) -> None:
         conn.executescript(
             """
-            ALTER TABLE ocr_drafts RENAME TO ocr_drafts_old;
-
-            CREATE TABLE ocr_drafts (
+            CREATE TABLE IF NOT EXISTS ocr_drafts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ocr_model TEXT NOT NULL,
                 language TEXT NOT NULL CHECK (language IN ('en', 'zh')),
@@ -213,24 +172,75 @@ class Storage:
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(ocr_draft_id, position)
             );
-
-            INSERT INTO ocr_drafts
-                (id, ocr_model, language, status, error, linked_generation_id, created_at, updated_at)
-            SELECT id, ocr_model,
-                   CASE WHEN language IN ('en', 'zh') THEN language ELSE 'en' END,
-                   status, error, linked_generation_id, created_at, updated_at
-            FROM ocr_drafts_old;
-
-            INSERT INTO ocr_draft_images
-                (ocr_draft_id, position, image_path, original_filename, mime_type, byte_size,
-                 extracted_text, status, error, created_at, updated_at)
-            SELECT id, 0, image_path, original_filename, mime_type, byte_size,
-                   extracted_text, status, error, created_at, updated_at
-            FROM ocr_drafts_old;
-
-            DROP TABLE ocr_drafts_old;
             """
         )
+
+    def _drop_incompatible_ocr_tables(self, conn: sqlite3.Connection) -> None:
+        if not self._ocr_tables_are_incompatible(conn):
+            return
+
+        conn.execute("DROP INDEX IF EXISTS idx_ocr_drafts_linked_generation_id")
+        conn.execute("DROP TABLE IF EXISTS ocr_draft_images")
+        conn.execute("DROP TABLE IF EXISTS ocr_drafts")
+
+    def _ocr_tables_are_incompatible(self, conn: sqlite3.Connection) -> bool:
+        draft_row = conn.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'ocr_drafts'
+            """
+        ).fetchone()
+        image_row = conn.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'ocr_draft_images'
+            """
+        ).fetchone()
+        if draft_row is None and image_row is None:
+            return False
+        if draft_row is None or image_row is None:
+            return True
+
+        draft_columns = {row["name"] for row in conn.execute("PRAGMA table_info(ocr_drafts)").fetchall()}
+        image_columns = {row["name"] for row in conn.execute("PRAGMA table_info(ocr_draft_images)").fetchall()}
+        required_draft_columns = {
+            "id",
+            "ocr_model",
+            "language",
+            "status",
+            "error",
+            "linked_generation_id",
+            "created_at",
+            "updated_at",
+        }
+        required_image_columns = {
+            "id",
+            "ocr_draft_id",
+            "position",
+            "image_path",
+            "original_filename",
+            "mime_type",
+            "byte_size",
+            "extracted_text",
+            "status",
+            "error",
+            "created_at",
+            "updated_at",
+        }
+        old_draft_columns = {"image_path", "original_filename", "mime_type", "byte_size", "extracted_text"}
+        if not required_draft_columns.issubset(draft_columns):
+            return True
+        if draft_columns & old_draft_columns:
+            return True
+        if not required_image_columns.issubset(image_columns):
+            return True
+
+        fk_tables = {
+            row["table"]
+            for row in conn.execute("PRAGMA foreign_key_list(ocr_draft_images)").fetchall()
+            if row["from"] == "ocr_draft_id"
+        }
+        return fk_tables != {"ocr_drafts"}
 
     def _validate_ocr_language(self, language: str) -> None:
         if language not in {"en", "zh"}:
