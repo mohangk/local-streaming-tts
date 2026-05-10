@@ -22,6 +22,9 @@ const state = {
   },
 };
 
+const OCR_IMAGE_MAX_EDGE = 2048;
+const OCR_IMAGE_JPEG_QUALITY = 0.85;
+
 const views = document.querySelectorAll(".view");
 const navButtons = document.querySelectorAll(".nav-button");
 const textModeButton = document.querySelector("#text-mode");
@@ -500,14 +503,107 @@ function renderOcrDrafts() {
     .join("");
 }
 
+function resizedImageFilename(file) {
+  const stem = (file.name || "image").replace(/\.[^.]*$/, "") || "image";
+  return `${stem}.jpg`;
+}
+
+function loadImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Unable to read image"));
+    };
+    image.src = objectUrl;
+  });
+}
+
+function scaledImageSize(width, height) {
+  const longestEdge = Math.max(width, height);
+  if (longestEdge <= OCR_IMAGE_MAX_EDGE) {
+    return { width, height, resized: false };
+  }
+  const scale = OCR_IMAGE_MAX_EDGE / longestEdge;
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+    resized: true,
+  };
+}
+
+function canvasToJpegBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error("Unable to resize image"));
+        }
+      },
+      "image/jpeg",
+      OCR_IMAGE_JPEG_QUALITY,
+    );
+  });
+}
+
+async function resizeOcrImageIfNeeded(file) {
+  const image = await loadImageElement(file);
+  const size = scaledImageSize(image.naturalWidth || image.width, image.naturalHeight || image.height);
+  if (!size.resized) {
+    return { file, resized: false };
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = size.width;
+  canvas.height = size.height;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, size.width, size.height);
+  context.drawImage(image, 0, 0, size.width, size.height);
+  const blob = await canvasToJpegBlob(canvas);
+  const resizedFile = new File([blob], resizedImageFilename(file), { type: "image/jpeg" });
+  return { file: resizedFile, resized: true };
+}
+
+async function prepareOcrImagesForUpload(images) {
+  const prepared = [];
+  let resizedCount = 0;
+  playerStatus.textContent = `Preparing ${images.length} ${images.length === 1 ? "image" : "images"}...`;
+  for (const image of images) {
+    const result = await resizeOcrImageIfNeeded(image);
+    prepared.push(result.file);
+    if (result.resized) {
+      resizedCount += 1;
+    }
+  }
+  if (resizedCount > 0) {
+    playerStatus.textContent = `Resized ${resizedCount} of ${images.length} ${images.length === 1 ? "image" : "images"}`;
+  }
+  return prepared;
+}
+
 async function extractImageText() {
   const images = Array.from(imageInput.files || []);
   if (images.length === 0) {
     return;
   }
   stopPlayback();
+  let uploadImages;
+  try {
+    uploadImages = await prepareOcrImagesForUpload(images);
+  } catch {
+    playerStatus.textContent = "Unable to prepare image for upload";
+    return;
+  }
   const formData = new FormData();
-  images.forEach((image) => {
+  uploadImages.forEach((image) => {
     formData.append("image", image);
   });
   formData.append("language", currentLanguage());

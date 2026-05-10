@@ -77,6 +77,18 @@ def test_frontend_javascript_uses_ocr_draft_endpoints():
     assert "forEach((image)" in js
 
 
+def test_frontend_resizes_large_ocr_images_before_upload():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    extractor = js.split("async function extractImageText()", 1)[1].split("async function openOcrDraft", 1)[0]
+
+    assert "prepareOcrImagesForUpload" in extractor
+    assert "const OCR_IMAGE_MAX_EDGE = 2048" in js
+    assert "const OCR_IMAGE_JPEG_QUALITY = 0.85" in js
+    assert "canvas.toBlob" in js
+    assert "image/jpeg" in js
+    assert "Preparing" in js
+
+
 def test_frontend_refreshes_ocr_drafts_after_upload_error():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     extractor = js.split("async function extractImageText()", 1)[1].split("async function openOcrDraft", 1)[0]
