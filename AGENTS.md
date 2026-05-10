@@ -72,4 +72,5 @@ The app currently uses `qwen3-tts-flash-realtime` by default. Alibaba Cloud Mode
 - Keep frontend JavaScript lightweight and mobile-first.
 - Keep TTS provider behavior behind the provider interface.
 - Treat the same text or URL with a different voice or speed as a separate generation.
+- For schema changes, prefer one-time forward migrations that copy existing data into the new shape, then remove old tables or columns. Do not leave long-lived backward-compatible runtime branches after the migration. Destructive resets are only acceptable when the user explicitly says incompatible data can be discarded.
 - Preserve unrelated untracked files such as `.codex` or smoke-test artifacts unless the user asks otherwise.
