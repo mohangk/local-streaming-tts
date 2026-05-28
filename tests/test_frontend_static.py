@@ -168,6 +168,8 @@ def test_frontend_renders_thumbnails_and_per_image_review_controls():
     assert "ocr-thumbnail" in renderer
     assert "data-image-id" in renderer
     assert "data-action=\"delete-image\"" in renderer
+    assert "data-action=\"retry-image\"" in renderer
+    assert "Retry OCR" in renderer
     assert "ocr-image-text" in renderer
     assert "No images stored for this draft" in renderer
 
@@ -228,6 +230,9 @@ def test_frontend_history_and_ocr_actions_pass_buttons_for_feedback():
     assert "openOcrDraft(Number(action.dataset.draftId), action)" in js
     assert "deleteOcrDraft(Number(action.dataset.draftId), action)" in js
     assert "deleteOcrDraftImage(state.currentOcrDraftId, Number(action.dataset.imageId), action)" in js
+    assert "retryOcrDraftImage(state.currentOcrDraftId, Number(action.dataset.imageId), action)" in js
+    assert "withButtonBusy(button, \"Retrying...\"" in js
+    assert "/retry" in js
 
 
 def test_frontend_voice_sample_marks_sample_playback_state():

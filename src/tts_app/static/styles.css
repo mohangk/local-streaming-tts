@@ -45,6 +45,7 @@ textarea { resize: vertical; min-height: 220px; }
 .ocr-review-list { display: grid; gap: 12px; }
 .ocr-image-card { display: grid; gap: 10px; border: 1px solid #d8dde6; border-radius: 8px; background: #ffffff; padding: 10px; }
 .ocr-image-header { display: grid; grid-template-columns: 84px 1fr auto; gap: 10px; align-items: center; }
+.ocr-image-actions { display: grid; gap: 8px; }
 .ocr-thumbnail { width: 84px; aspect-ratio: 1; object-fit: cover; border: 1px solid #d8dde6; border-radius: 8px; background: #eef1f5; }
 .ocr-image-text { min-height: 140px; }
 .hidden { display: none; }

@@ -229,7 +229,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
                     status="failed",
                     error=str(exc),
                 )
-                logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, exc)
+                logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, exc, exc_info=True)
                 continue
 
             if not extracted_text.strip():
@@ -286,6 +286,72 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
         if not path.exists():
             raise HTTPException(status_code=404, detail="ocr draft image file not found")
         return FileResponse(path, media_type=image["mime_type"], stat_result=path.stat())
+
+    @app.post("/api/ocr-drafts/{draft_id}/images/{image_id}/retry")
+    async def retry_ocr_draft_image(draft_id: int, image_id: int):
+        try:
+            draft = storage.get_ocr_draft(draft_id)
+            image = storage.get_ocr_draft_image(draft_id, image_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="ocr draft image not found") from exc
+
+        if draft["linked_generation_id"] is not None:
+            raise HTTPException(status_code=409, detail="ocr draft is linked to generation")
+
+        image_path = _stored_ocr_image_path(active_settings, image)
+        if not image_path.exists():
+            raise HTTPException(status_code=404, detail="ocr draft image file not found")
+
+        relative_image_path = str(image["image_path"])
+        storage.update_ocr_draft_image_ocr_result(
+            draft_id,
+            image_id,
+            image_path=relative_image_path,
+            extracted_text="",
+            status="running",
+            error=None,
+        )
+        try:
+            extracted_text = await ocr_provider.extract_text(
+                image_path.read_bytes(),
+                str(image["mime_type"]),
+                OCROptions(language=str(draft["language"]), model=active_settings.ocr_model),
+            )
+        except OCRProviderError as exc:
+            storage.update_ocr_draft_image_ocr_result(
+                draft_id,
+                image_id,
+                image_path=relative_image_path,
+                extracted_text="",
+                status="failed",
+                error=str(exc),
+            )
+            logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, exc, exc_info=True)
+            return storage.get_ocr_draft(draft_id)
+
+        if not extracted_text.strip():
+            error = "OCR returned no visible text"
+            storage.update_ocr_draft_image_ocr_result(
+                draft_id,
+                image_id,
+                image_path=relative_image_path,
+                extracted_text="",
+                status="failed",
+                error=error,
+            )
+            logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, error)
+            return storage.get_ocr_draft(draft_id)
+
+        storage.update_ocr_draft_image_ocr_result(
+            draft_id,
+            image_id,
+            image_path=relative_image_path,
+            extracted_text=extracted_text,
+            status="completed",
+            error=None,
+        )
+        logger.info("ocr_draft_image_retried draft_id=%s image_id=%s text_chars=%s", draft_id, image_id, len(extracted_text))
+        return storage.get_ocr_draft(draft_id)
 
     @app.put("/api/ocr-drafts/{draft_id}")
     async def update_ocr_draft(draft_id: int, payload: OcrDraftUpdateRequest):

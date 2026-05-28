@@ -52,7 +52,7 @@ class QwenOCRProvider:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(QWEN_OCR_ENDPOINT, headers=headers, json=payload)
         except httpx.HTTPError as exc:
-            raise OCRProviderError(f"qwen ocr provider request failed: {exc}") from exc
+            raise OCRProviderError(f"qwen ocr provider request failed: {_http_error_message(exc)}") from exc
 
         if response.status_code < 200 or response.status_code >= 300:
             message = _response_error_message(response)
@@ -91,3 +91,10 @@ def _response_error_message(response: httpx.Response) -> str:
         if isinstance(message, str) and message:
             return message[:500]
     return response.text[:500]
+
+
+def _http_error_message(exc: httpx.HTTPError) -> str:
+    detail = str(exc).strip()
+    if detail:
+        return f"{type(exc).__name__}: {detail}"
+    return type(exc).__name__

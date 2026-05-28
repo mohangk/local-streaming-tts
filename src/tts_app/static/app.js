@@ -486,6 +486,10 @@ function renderOcrReview() {
   ocrReviewList.innerHTML = (draft.images || [])
     .map((image) => {
       const error = image.error ? `<div class="history-item-url">${escapeHtml(image.error)}</div>` : "";
+      const retryButton =
+        image.status === "failed" && !draft.linked_generation_id
+          ? `<button class="secondary-action compact-action" type="button" data-action="retry-image" data-image-id="${image.id}">Retry OCR</button>`
+          : "";
       return `
         <article class="ocr-image-card" data-image-id="${image.id}">
           <div class="ocr-image-header">
@@ -495,7 +499,10 @@ function renderOcrReview() {
               <div class="history-item-meta">${escapeHtml(image.status)} ${escapeHtml(image.original_filename || "")}</div>
               ${error}
             </div>
-            <button class="danger-action compact-action" type="button" data-action="delete-image" data-image-id="${image.id}">Remove</button>
+            <div class="ocr-image-actions">
+              ${retryButton}
+              <button class="danger-action compact-action" type="button" data-action="delete-image" data-image-id="${image.id}">Remove</button>
+            </div>
           </div>
           <textarea class="ocr-image-text" data-image-id="${image.id}" rows="7" aria-label="Reviewed OCR text for image ${image.position + 1}">${escapeHtml(image.extracted_text || "")}</textarea>
         </article>
@@ -936,6 +943,24 @@ async function generateOcrAudio() {
   }
 }
 
+async function retryOcrDraftImage(draftId, imageId, button = null) {
+  await withButtonBusy(button, "Retrying...", async () => {
+    try {
+      const response = await fetch(`/api/ocr-drafts/${draftId}/images/${imageId}/retry`, { method: "POST" });
+      if (!response.ok) {
+        const error = await response.json();
+        playerStatus.textContent = error.detail || "Unable to retry OCR";
+        return;
+      }
+      showOcrDraft(await response.json());
+      await loadOcrDrafts();
+      playerStatus.textContent = "Retried OCR";
+    } catch {
+      playerStatus.textContent = "Unable to retry OCR";
+    }
+  });
+}
+
 async function deleteOcrDraftImage(draftId, imageId, button = null) {
   if (!window.confirm("Remove this image from the draft?")) {
     return;
@@ -1256,10 +1281,16 @@ ocrReviewList.addEventListener("input", updateGenerateOcrAudioState);
 
 ocrReviewList.addEventListener("click", (event) => {
   const action = event.target.closest("[data-action]");
-  if (!action || action.dataset.action !== "delete-image" || !state.currentOcrDraftId) {
+  if (!action || !state.currentOcrDraftId) {
     return;
   }
-  deleteOcrDraftImage(state.currentOcrDraftId, Number(action.dataset.imageId), action);
+  if (action.dataset.action === "delete-image") {
+    deleteOcrDraftImage(state.currentOcrDraftId, Number(action.dataset.imageId), action);
+    return;
+  }
+  if (action.dataset.action === "retry-image") {
+    retryOcrDraftImage(state.currentOcrDraftId, Number(action.dataset.imageId), action);
+  }
 });
 
 readingPane.addEventListener("click", (event) => {

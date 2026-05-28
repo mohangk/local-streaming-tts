@@ -57,6 +57,21 @@ class CapturingAsyncClient:
         return self.response
 
 
+class FailingAsyncClient:
+    def __init__(self, *args, **kwargs):
+        self.init_args = args
+        self.init_kwargs = kwargs
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def post(self, url, *, headers, json):
+        raise qwen.httpx.ReadTimeout("")
+
+
 @pytest.mark.asyncio
 async def test_fake_ocr_provider_returns_deterministic_text():
     provider = FakeOCRProvider()
@@ -121,6 +136,15 @@ async def test_qwen_ocr_provider_maps_non_2xx_to_provider_error(monkeypatch):
     provider = QwenOCRProvider(api_key="secret-key", model="qwen-vl-ocr")
 
     with pytest.raises(OCRProviderError, match="qwen ocr provider request failed.*401.*unauthorized"):
+        await provider.extract_text(b"image", "image/png", OCROptions(language="en"))
+
+
+@pytest.mark.asyncio
+async def test_qwen_ocr_provider_includes_http_exception_type_when_message_is_empty(monkeypatch):
+    monkeypatch.setattr(qwen.httpx, "AsyncClient", FailingAsyncClient)
+    provider = QwenOCRProvider(api_key="secret-key", model="qwen-vl-ocr")
+
+    with pytest.raises(OCRProviderError, match="qwen ocr provider request failed: ReadTimeout"):
         await provider.extract_text(b"image", "image/png", OCROptions(language="en"))
 
 

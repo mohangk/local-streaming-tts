@@ -151,6 +151,19 @@ class EmptyOCRProvider:
         return " \n\t "
 
 
+class FailsOnceOCRProvider:
+    name = "fails-once-ocr"
+
+    def __init__(self):
+        self.calls: list[tuple[bytes, str, OCROptions]] = []
+
+    async def extract_text(self, image: bytes, mime_type: str, options: OCROptions) -> str:
+        self.calls.append((image, mime_type, options))
+        if len(self.calls) == 1:
+            raise OCRProviderError("temporary ocr outage")
+        return "Recovered OCR text"
+
+
 def test_submit_text_starts_generation_and_history_returns_item(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
@@ -408,6 +421,57 @@ def test_failed_ocr_draft_keeps_real_image_path(test_settings, monkeypatch):
     assert draft["images"][0]["error"] == "ocr unavailable"
     assert draft["images"][0]["image_path"] == f"images/{draft['id']}/{draft['images'][0]['id']}/source.png"
     assert (test_settings.data_dir / draft["images"][0]["image_path"]).exists()
+
+
+def test_retry_failed_ocr_image_uses_stored_file_and_updates_draft(test_settings, monkeypatch):
+    provider = FailsOnceOCRProvider()
+    monkeypatch.setattr("tts_app.api.get_ocr_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        data={"language": "zh"},
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+    image = draft["images"][0]
+
+    response = client.post(f"/api/ocr-drafts/{draft['id']}/images/{image['id']}/retry")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["error"] is None
+    assert body["extracted_text"] == "Recovered OCR text"
+    assert body["images"][0]["status"] == "completed"
+    assert body["images"][0]["error"] is None
+    assert body["images"][0]["extracted_text"] == "Recovered OCR text"
+    assert [call[0] for call in provider.calls] == [b"fake-image", b"fake-image"]
+    assert provider.calls[1][1] == "image/png"
+    assert provider.calls[1][2].language == "zh"
+    assert provider.calls[1][2].model == test_settings.ocr_model
+
+
+def test_retry_ocr_image_on_linked_draft_is_rejected(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+    client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={"voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+    )
+
+    response = client.post(f"/api/ocr-drafts/{draft['id']}/images/{draft['images'][0]['id']}/retry")
+
+    assert response.status_code == 409
+
+
+def test_retry_missing_ocr_image_is_not_found(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post("/api/ocr-drafts/999/images/888/retry")
+
+    assert response.status_code == 404
 
 
 def test_empty_ocr_draft_is_failed_with_real_image_path(test_settings, monkeypatch):
