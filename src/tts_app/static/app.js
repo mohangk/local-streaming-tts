@@ -42,7 +42,6 @@ const textLabel = document.querySelector("#text-label");
 const urlLabel = document.querySelector("#url-label");
 const imageActions = document.querySelector("#image-actions");
 const uploadImageFilesButton = document.querySelector("#upload-image-files");
-const clearImageSelectionButton = document.querySelector("#clear-image-selection");
 const clearOcrDraftButton = document.querySelector("#clear-ocr-draft");
 const extractImageTextButton = document.querySelector("#extract-image-text");
 const imageSelectionList = document.querySelector("#image-selection-list");
@@ -104,7 +103,6 @@ function setInputMode(mode) {
   imageUploadInput.classList.add("hidden");
   imageActions.classList.toggle("hidden", !isImage);
   imageSelectionList.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
-  clearImageSelectionButton.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
   clearOcrDraftButton.classList.toggle("hidden", !isImage || !state.currentOcrDraftId || Boolean(state.currentOcrDraft?.linked_generation_id));
   extractImageTextButton.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
   ocrReviewList.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
@@ -613,7 +611,6 @@ function renderPendingOcrImages() {
   const hasImages = state.pendingOcrImages.length > 0;
   const isImageMode = state.inputMode === "image";
   imageSelectionList.classList.toggle("hidden", !isImageMode || !hasImages);
-  clearImageSelectionButton.classList.toggle("hidden", !isImageMode || !hasImages);
   extractImageTextButton.classList.toggle("hidden", !isImageMode || !hasImages);
   if (!hasImages) {
     imageSelectionList.innerHTML = "";
@@ -692,7 +689,6 @@ function setOcrUploadActive(active) {
   }
   imageUploadInput.disabled = active;
   uploadImageFilesButton.disabled = active;
-  clearImageSelectionButton.disabled = active;
   clearOcrDraftButton.disabled = active;
   languageSelect.disabled = active;
   cancelOcrUploadButton.disabled = !active;
@@ -1422,7 +1418,6 @@ voiceSelect.addEventListener("change", updateVoiceStar);
 voiceStar.addEventListener("click", toggleVoicePreference);
 voiceSample.addEventListener("click", playVoiceSample);
 uploadImageFilesButton.addEventListener("click", () => imageUploadInput.click());
-clearImageSelectionButton.addEventListener("click", clearPendingOcrImages);
 clearOcrDraftButton.addEventListener("click", clearActiveOcrDraft);
 imageUploadInput.addEventListener("change", () => {
   appendPendingOcrImages(Array.from(imageUploadInput.files || []));

@@ -54,7 +54,6 @@ def test_frontend_has_image_input_controls():
     assert 'id="image-mode"' in html
     assert 'id="image-upload-input"' in html
     assert 'id="upload-image-files"' in html
-    assert 'id="clear-image-selection"' in html
     assert 'id="clear-ocr-draft"' in html
     assert 'id="image-selection-list"' in html
     assert 'id="ocr-upload-progress"' in html
@@ -65,6 +64,8 @@ def test_frontend_has_image_input_controls():
     assert 'id="ocr-review-list"' in html
     assert 'id="image-camera-input"' not in html
     assert 'id="take-image-photo"' not in html
+    assert 'id="clear-image-selection"' not in html
+    assert ">Clear</button>" not in html
     assert 'capture="environment"' not in html
 
 
@@ -132,6 +133,8 @@ def test_frontend_queues_uploaded_images_before_ocr():
     assert "clearPendingOcrImages" in js
     assert "imageCameraInput" not in js
     assert "takeImagePhotoButton" not in js
+    assert "clearImageSelectionButton" not in js
+    assert 'document.querySelector("#clear-image-selection")' not in js
 
 
 def test_frontend_appends_uploaded_images_to_active_unlinked_draft():
@@ -198,11 +201,11 @@ def test_frontend_disables_image_controls_during_ocr_upload():
 
     assert "imageUploadInput.disabled = active" in controls
     assert "uploadImageFilesButton.disabled = active" in controls
-    assert "clearImageSelectionButton.disabled = active" in controls
     assert "clearOcrDraftButton.disabled = active" in controls
     assert "languageSelect.disabled = active" in controls
     assert "imageCameraInput" not in controls
     assert "takeImagePhotoButton" not in controls
+    assert "clearImageSelectionButton" not in controls
 
 
 def test_frontend_renders_one_combined_ocr_textarea_and_active_thumbnails():
