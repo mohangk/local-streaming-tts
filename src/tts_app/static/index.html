@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Readvox</title>
-    <link rel="stylesheet" href="/static/styles.css?v=ocr-combined-review-2" />
+    <link rel="stylesheet" href="/static/styles.css?v=ocr-append-draft-3" />
   </head>
   <body>
     <main class="app-shell">
@@ -25,6 +25,7 @@
           <div id="image-actions" class="image-actions hidden">
             <button id="upload-image-files" class="secondary-action" type="button">Upload images</button>
             <button id="clear-image-selection" class="secondary-action hidden" type="button">Clear</button>
+            <button id="clear-ocr-draft" class="warning-action hidden" type="button">Clear images</button>
             <button id="extract-image-text" class="secondary-action hidden" type="button">Extract text</button>
           </div>
           <div id="ocr-upload-progress" class="upload-progress hidden" aria-live="polite">
@@ -100,6 +101,6 @@
     </div>
 
     <audio id="audio-player"></audio>
-    <script src="/static/app.js?v=ocr-combined-review-2" defer></script>
+    <script src="/static/app.js?v=ocr-append-draft-3" defer></script>
   </body>
 </html>

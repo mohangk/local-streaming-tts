@@ -43,6 +43,7 @@ const urlLabel = document.querySelector("#url-label");
 const imageActions = document.querySelector("#image-actions");
 const uploadImageFilesButton = document.querySelector("#upload-image-files");
 const clearImageSelectionButton = document.querySelector("#clear-image-selection");
+const clearOcrDraftButton = document.querySelector("#clear-ocr-draft");
 const extractImageTextButton = document.querySelector("#extract-image-text");
 const imageSelectionList = document.querySelector("#image-selection-list");
 const ocrUploadProgress = document.querySelector("#ocr-upload-progress");
@@ -104,6 +105,7 @@ function setInputMode(mode) {
   imageActions.classList.toggle("hidden", !isImage);
   imageSelectionList.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
   clearImageSelectionButton.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
+  clearOcrDraftButton.classList.toggle("hidden", !isImage || !state.currentOcrDraftId || Boolean(state.currentOcrDraft?.linked_generation_id));
   extractImageTextButton.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
   ocrReviewList.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
   generateOcrAudioButton.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
@@ -691,6 +693,7 @@ function setOcrUploadActive(active) {
   imageUploadInput.disabled = active;
   uploadImageFilesButton.disabled = active;
   clearImageSelectionButton.disabled = active;
+  clearOcrDraftButton.disabled = active;
   languageSelect.disabled = active;
   cancelOcrUploadButton.disabled = !active;
 }
@@ -706,11 +709,12 @@ function cancelOcrUpload() {
   showOcrUploadError("Image upload cancelled");
 }
 
-function uploadOcrDraft(formData) {
+function uploadOcrDraft(formData, draftId = null) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const endpoint = draftId ? `/api/ocr-drafts/${draftId}/images` : "/api/ocr-drafts";
     state.ocrUploadXhr = xhr;
-    xhr.open("POST", "/api/ocr-drafts");
+    xhr.open("POST", endpoint);
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) {
         showOcrUploadProgress("Uploading images...");
@@ -857,7 +861,11 @@ async function extractImageText(button = null) {
     formData.append("language", currentLanguage());
     playerStatus.textContent = "Extracting image text";
     try {
-      const draft = await uploadOcrDraft(formData);
+      const appendDraftId = state.currentOcrDraftId && !state.currentOcrDraft?.linked_generation_id ? state.currentOcrDraftId : null;
+      if (appendDraftId) {
+        formData.append("combined_text", reviewedOcrText());
+      }
+      const draft = await uploadOcrDraft(formData, appendDraftId);
       showOcrDraft(draft);
       clearPendingOcrImages({ silent: true });
       clearOcrUploadProgress();
@@ -912,6 +920,33 @@ async function deleteOcrDraft(draftId, button = null) {
       playerStatus.textContent = "Deleted image draft";
     } catch {
       playerStatus.textContent = "Unable to delete image draft";
+    }
+  });
+}
+
+async function clearActiveOcrDraft() {
+  if (!state.currentOcrDraftId || state.currentOcrDraft?.linked_generation_id) {
+    return;
+  }
+  if (!window.confirm("Clear these OCR images and start fresh?")) {
+    return;
+  }
+  await withButtonBusy(clearOcrDraftButton, "Clearing...", async () => {
+    try {
+      const draftId = state.currentOcrDraftId;
+      const response = await fetch(`/api/ocr-drafts/${draftId}`, { method: "DELETE" });
+      if (!response.ok) {
+        playerStatus.textContent = "Unable to clear images";
+        return;
+      }
+      state.currentOcrDraftId = null;
+      state.currentOcrDraft = null;
+      ocrReviewList.innerHTML = "";
+      setInputMode("image");
+      await loadOcrDrafts();
+      playerStatus.textContent = "Cleared images";
+    } catch {
+      playerStatus.textContent = "Unable to clear images";
     }
   });
 }
@@ -1388,6 +1423,7 @@ voiceStar.addEventListener("click", toggleVoicePreference);
 voiceSample.addEventListener("click", playVoiceSample);
 uploadImageFilesButton.addEventListener("click", () => imageUploadInput.click());
 clearImageSelectionButton.addEventListener("click", clearPendingOcrImages);
+clearOcrDraftButton.addEventListener("click", clearActiveOcrDraft);
 imageUploadInput.addEventListener("change", () => {
   appendPendingOcrImages(Array.from(imageUploadInput.files || []));
   imageUploadInput.value = "";

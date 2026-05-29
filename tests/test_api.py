@@ -340,6 +340,90 @@ def test_create_ocr_draft_still_accepts_single_image(test_settings):
     assert body["image_path"] == body["images"][0]["image_path"]
 
 
+def test_append_ocr_draft_images_preserves_reviewed_combined_text(test_settings, monkeypatch):
+    class CountingOCRProvider:
+        name = "counting-ocr"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def extract_text(self, image: bytes, mime_type: str, options: OCROptions) -> str:
+            self.calls += 1
+            return f"Page {self.calls} text"
+
+    monkeypatch.setattr("tts_app.api.get_ocr_provider", lambda settings: CountingOCRProvider())
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page-1.png", b"fake-image-one", "image/png")},
+    ).json()
+    client.put(f"/api/ocr-drafts/{draft['id']}", json={"language": "en", "combined_text": "Reviewed existing text"})
+
+    response = client.post(
+        f"/api/ocr-drafts/{draft['id']}/images",
+        files=[
+            ("image", ("page-2.png", b"fake-image-two", "image/png")),
+            ("image", ("page-3.png", b"fake-image-three", "image/png")),
+        ],
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == draft["id"]
+    assert [image["position"] for image in body["images"]] == [0, 1, 2]
+    assert [image["extracted_text"] for image in body["images"]] == ["Page 1 text", "Page 2 text", "Page 3 text"]
+    assert body["combined_text"] == "Reviewed existing text\n\nPage 2 text\n\nPage 3 text"
+    assert len(client.get("/api/ocr-drafts").json()) == 1
+
+
+def test_append_ocr_draft_images_can_use_current_unsaved_combined_text(test_settings, monkeypatch):
+    class CountingOCRProvider:
+        name = "counting-ocr"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def extract_text(self, image: bytes, mime_type: str, options: OCROptions) -> str:
+            self.calls += 1
+            return f"Page {self.calls} text"
+
+    monkeypatch.setattr("tts_app.api.get_ocr_provider", lambda settings: CountingOCRProvider())
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page-1.png", b"fake-image-one", "image/png")},
+    ).json()
+
+    response = client.post(
+        f"/api/ocr-drafts/{draft['id']}/images",
+        data={"combined_text": "Unsaved textarea edit"},
+        files={"image": ("page-2.png", b"fake-image-two", "image/png")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["combined_text"] == "Unsaved textarea edit\n\nPage 2 text"
+
+
+def test_append_ocr_draft_images_rejects_linked_draft(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page-1.png", b"fake-image-one", "image/png")},
+    ).json()
+    generation = client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={"voice": "Jennifer", "speed": 1.0, "language": "en", "autoplay": True},
+    )
+    assert generation.status_code == 200
+
+    response = client.post(
+        f"/api/ocr-drafts/{draft['id']}/images",
+        files={"image": ("page-2.png", b"fake-image-two", "image/png")},
+    )
+
+    assert response.status_code == 409
+
+
 def test_create_ocr_draft_rejects_non_image_upload(test_settings):
     client = TestClient(create_app(test_settings, run_background_inline=True))
 

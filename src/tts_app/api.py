@@ -15,7 +15,7 @@ from tts_app.config import Settings, load_settings
 from tts_app.events import EventBroker
 from tts_app.extractor import ExtractionError, fetch_and_extract
 from tts_app.generation import GenerationService
-from tts_app.ocr_providers.base import OCROptions, OCRProviderError
+from tts_app.ocr_providers.base import OCROptions, OCRProvider, OCRProviderError
 from tts_app.ocr_providers.registry import get_ocr_provider
 from tts_app.providers.base import TTSOptions
 from tts_app.providers.options import SelectOption
@@ -198,63 +198,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             status="running",
         )
 
-        for position, upload in enumerate(uploads):
-            extension = _image_extension(upload["filename"])
-            image_id = storage.create_ocr_draft_image(
-                draft_id,
-                position=position,
-                image_path=f"images/{draft_id}/pending-{position}{extension}",
-                original_filename=upload["filename"],
-                mime_type=upload["mime_type"],
-                byte_size=len(upload["bytes"]),
-                extracted_text="",
-                status="running",
-            )
-            relative_image_path = f"images/{draft_id}/{image_id}/source{extension}"
-            image_path = active_settings.image_dir / str(draft_id) / str(image_id) / f"source{extension}"
-            image_path.parent.mkdir(parents=True, exist_ok=True)
-            image_path.write_bytes(upload["bytes"])
-
-            try:
-                extracted_text = await ocr_provider.extract_text(
-                    upload["bytes"],
-                    upload["mime_type"],
-                    OCROptions(language=language, model=active_settings.ocr_model),
-                )
-            except OCRProviderError as exc:
-                storage.update_ocr_draft_image_ocr_result(
-                    draft_id,
-                    image_id,
-                    image_path=relative_image_path,
-                    extracted_text="",
-                    status="failed",
-                    error=str(exc),
-                )
-                logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, exc, exc_info=True)
-                continue
-
-            if not extracted_text.strip():
-                error = "OCR returned no visible text"
-                storage.update_ocr_draft_image_ocr_result(
-                    draft_id,
-                    image_id,
-                    image_path=relative_image_path,
-                    extracted_text="",
-                    status="failed",
-                    error=error,
-                )
-                logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, error)
-                continue
-
-            storage.update_ocr_draft_image_ocr_result(
-                draft_id,
-                image_id,
-                image_path=relative_image_path,
-                extracted_text=extracted_text,
-                status="completed",
-                error=None,
-            )
-
+        await _store_ocr_uploads(storage, active_settings, ocr_provider, draft_id, uploads, language, start_position=0)
         storage.rebuild_ocr_draft_combined_text(draft_id)
         draft = storage.get_ocr_draft(draft_id)
         logger.info(
@@ -266,6 +210,45 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             draft["status"],
         )
         return draft
+
+    @app.post("/api/ocr-drafts/{draft_id}/images")
+    async def append_ocr_draft_images(
+        draft_id: int,
+        image: list[UploadFile] = File(...),
+        language: str = Form("en"),
+        combined_text: str | None = Form(None),
+    ):
+        _validate_ocr_language(language)
+        try:
+            draft = storage.get_ocr_draft(draft_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="ocr draft not found") from exc
+        if draft["linked_generation_id"] is not None:
+            raise HTTPException(status_code=409, detail="ocr draft is linked to generation")
+
+        uploads = await _read_ocr_uploads(image, active_settings.max_image_bytes)
+        appended_texts = await _store_ocr_uploads(
+            storage,
+            active_settings,
+            ocr_provider,
+            draft_id,
+            uploads,
+            language,
+            start_position=len(draft["images"]),
+        )
+        base_text = str(draft["combined_text"]) if combined_text is None else combined_text
+        updated_combined_text = _append_ocr_text(base_text, appended_texts)
+        storage.update_ocr_draft(draft_id, language=language, combined_text=updated_combined_text, image_texts={})
+        updated = storage.get_ocr_draft(draft_id)
+        logger.info(
+            "ocr_draft_images_appended draft_id=%s language=%s image_count=%s text_chars=%s status=%s",
+            draft_id,
+            language,
+            len(updated["images"]),
+            len(updated["combined_text"]),
+            updated["status"],
+        )
+        return updated
 
     @app.get("/api/ocr-drafts")
     async def list_ocr_drafts():
@@ -663,6 +646,90 @@ def _image_extension(filename: str | None) -> str:
     if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}:
         return suffix
     return ".img"
+
+
+async def _store_ocr_uploads(
+    storage: Storage,
+    settings: Settings,
+    ocr_provider: OCRProvider,
+    draft_id: int,
+    uploads: list[dict[str, bytes | str | None]],
+    language: str,
+    *,
+    start_position: int,
+) -> list[str]:
+    successful_texts: list[str] = []
+    for offset, upload in enumerate(uploads):
+        filename = upload["filename"] if isinstance(upload["filename"], str) else None
+        mime_type = str(upload["mime_type"] or "application/octet-stream")
+        image_bytes = upload["bytes"]
+        if not isinstance(image_bytes, bytes):
+            raise HTTPException(status_code=400, detail="uploaded image is invalid")
+
+        position = start_position + offset
+        extension = _image_extension(filename)
+        image_id = storage.create_ocr_draft_image(
+            draft_id,
+            position=position,
+            image_path=f"images/{draft_id}/pending-{position}{extension}",
+            original_filename=filename,
+            mime_type=mime_type,
+            byte_size=len(image_bytes),
+            extracted_text="",
+            status="running",
+        )
+        relative_image_path = f"images/{draft_id}/{image_id}/source{extension}"
+        image_path = settings.image_dir / str(draft_id) / str(image_id) / f"source{extension}"
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        image_path.write_bytes(image_bytes)
+
+        try:
+            extracted_text = await ocr_provider.extract_text(
+                image_bytes,
+                mime_type,
+                OCROptions(language=language, model=settings.ocr_model),
+            )
+        except OCRProviderError as exc:
+            storage.update_ocr_draft_image_ocr_result(
+                draft_id,
+                image_id,
+                image_path=relative_image_path,
+                extracted_text="",
+                status="failed",
+                error=str(exc),
+            )
+            logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, exc, exc_info=True)
+            continue
+
+        if not extracted_text.strip():
+            error = "OCR returned no visible text"
+            storage.update_ocr_draft_image_ocr_result(
+                draft_id,
+                image_id,
+                image_path=relative_image_path,
+                extracted_text="",
+                status="failed",
+                error=error,
+            )
+            logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, error)
+            continue
+
+        storage.update_ocr_draft_image_ocr_result(
+            draft_id,
+            image_id,
+            image_path=relative_image_path,
+            extracted_text=extracted_text,
+            status="completed",
+            error=None,
+        )
+        successful_texts.append(extracted_text)
+    return successful_texts
+
+
+def _append_ocr_text(existing_text: str, appended_texts: list[str]) -> str:
+    parts = [existing_text.strip()] if existing_text.strip() else []
+    parts.extend(text.strip() for text in appended_texts if text.strip())
+    return "\n\n".join(parts)
 
 
 def _option_dicts(options: Iterable[SelectOption]) -> list[dict[str, str | float]]:

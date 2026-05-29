@@ -55,6 +55,7 @@ def test_frontend_has_image_input_controls():
     assert 'id="image-upload-input"' in html
     assert 'id="upload-image-files"' in html
     assert 'id="clear-image-selection"' in html
+    assert 'id="clear-ocr-draft"' in html
     assert 'id="image-selection-list"' in html
     assert 'id="ocr-upload-progress"' in html
     assert 'id="ocr-upload-bar"' in html
@@ -133,6 +134,32 @@ def test_frontend_queues_uploaded_images_before_ocr():
     assert "takeImagePhotoButton" not in js
 
 
+def test_frontend_appends_uploaded_images_to_active_unlinked_draft():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    extractor = js.split("async function extractImageText", 1)[1].split("async function openOcrDraft", 1)[0]
+    uploader = js.split("function uploadOcrDraft", 1)[1].split("function resizedImageFilename", 1)[0]
+
+    assert "uploadOcrDraft(formData, appendDraftId)" in extractor
+    assert "state.currentOcrDraftId" in extractor
+    assert "!state.currentOcrDraft?.linked_generation_id" in extractor
+    assert 'formData.append("combined_text", reviewedOcrText())' in extractor
+    assert "draftId ? `/api/ocr-drafts/${draftId}/images` : \"/api/ocr-drafts\"" in uploader
+    assert "xhr.open(\"POST\", endpoint)" in uploader
+
+
+def test_frontend_exposes_warning_clear_images_for_active_ocr_draft():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    mode_switch = js.split("function setInputMode", 1)[1].split("function escapeHtml", 1)[0]
+
+    assert '<button id="clear-ocr-draft" class="warning-action hidden" type="button">Clear images</button>' in html
+    assert ".warning-action" in css
+    assert "clearOcrDraftButton.classList.toggle(\"hidden\", !isImage || !state.currentOcrDraftId || Boolean(state.currentOcrDraft?.linked_generation_id))" in mode_switch
+    assert "clearOcrDraftButton.addEventListener(\"click\", clearActiveOcrDraft)" in js
+    assert "function clearActiveOcrDraft" in js
+
+
 def test_frontend_resizes_large_ocr_images_before_upload():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     extractor = js.split("async function extractImageText", 1)[1].split("async function openOcrDraft", 1)[0]
@@ -172,6 +199,7 @@ def test_frontend_disables_image_controls_during_ocr_upload():
     assert "imageUploadInput.disabled = active" in controls
     assert "uploadImageFilesButton.disabled = active" in controls
     assert "clearImageSelectionButton.disabled = active" in controls
+    assert "clearOcrDraftButton.disabled = active" in controls
     assert "languageSelect.disabled = active" in controls
     assert "imageCameraInput" not in controls
     assert "takeImagePhotoButton" not in controls
