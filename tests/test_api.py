@@ -322,7 +322,7 @@ def test_create_ocr_draft_stores_images_and_returns_ordered_text(test_settings):
     assert body["status"] == "completed"
     assert [image["position"] for image in body["images"]] == [0, 1]
     assert all("Fake OCR text" in image["extracted_text"] for image in body["images"])
-    assert "Fake OCR text" in body["extracted_text"]
+    assert "Fake OCR text" in body["combined_text"]
     assert all((test_settings.data_dir / image["image_path"]).exists() for image in body["images"])
 
 
@@ -403,6 +403,7 @@ def test_partial_ocr_failure_keeps_successful_image_text(test_settings, monkeypa
     assert draft["status"] == "partial_failed"
     assert [image["status"] for image in draft["images"]] == ["completed", "failed"]
     assert draft["images"][0]["extracted_text"] == "Page 1 text"
+    assert draft["combined_text"] == "Page 1 text"
     assert draft["images"][1]["error"] == "second page failed"
 
 
@@ -440,7 +441,7 @@ def test_retry_failed_ocr_image_uses_stored_file_and_updates_draft(test_settings
     body = response.json()
     assert body["status"] == "completed"
     assert body["error"] is None
-    assert body["extracted_text"] == "Recovered OCR text"
+    assert body["combined_text"] == "Recovered OCR text"
     assert body["images"][0]["status"] == "completed"
     assert body["images"][0]["error"] is None
     assert body["images"][0]["extracted_text"] == "Recovered OCR text"
@@ -487,7 +488,7 @@ def test_empty_ocr_draft_is_failed_with_real_image_path(test_settings, monkeypat
     draft = client.get("/api/ocr-drafts").json()[0]
     assert draft["status"] == "failed"
     assert draft["images"][0]["error"] == "OCR returned no visible text"
-    assert draft["extracted_text"] == ""
+    assert draft["combined_text"] == ""
     assert (test_settings.data_dir / draft["images"][0]["image_path"]).exists()
 
 
@@ -516,9 +517,11 @@ def test_update_ocr_draft_and_create_generation(test_settings):
 
     update = client.put(
         f"/api/ocr-drafts/{draft['id']}",
-        json={"language": "en", "images": [{"id": draft["images"][0]["id"], "extracted_text": "Reviewed text."}]},
+        json={"language": "en", "combined_text": "Reviewed text."},
     )
     assert update.status_code == 200
+    assert update.json()["combined_text"] == "Reviewed text."
+    assert update.json()["images"][0]["extracted_text"] != "Reviewed text."
 
     generation = client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
@@ -532,7 +535,7 @@ def test_update_ocr_draft_and_create_generation(test_settings):
     assert detail["generation"]["settings"]["ocr_draft_id"] == draft["id"]
 
 
-def test_ocr_generation_combines_non_empty_image_text_in_order(test_settings):
+def test_ocr_generation_uses_combined_text(test_settings):
     client = TestClient(create_app(test_settings, run_background_inline=True))
     draft = client.post(
         "/api/ocr-drafts",
@@ -546,11 +549,7 @@ def test_ocr_generation_combines_non_empty_image_text_in_order(test_settings):
         f"/api/ocr-drafts/{draft['id']}",
         json={
             "language": "en",
-            "images": [
-                {"id": draft["images"][0]["id"], "extracted_text": "First page."},
-                {"id": draft["images"][1]["id"], "extracted_text": ""},
-                {"id": draft["images"][2]["id"], "extracted_text": "Third page."},
-            ],
+            "combined_text": "Edited combined text.",
         },
     )
 
@@ -561,7 +560,41 @@ def test_ocr_generation_combines_non_empty_image_text_in_order(test_settings):
 
     assert generation.status_code == 200
     detail = client.get(f"/api/generations/{generation.json()['generation_id']}").json()
-    assert detail["generation"]["full_text"] == "First page.\n\nThird page."
+    assert detail["generation"]["full_text"] == "Edited combined text."
+
+
+def test_retry_ocr_image_rebuilds_combined_text_from_all_images(test_settings, monkeypatch):
+    class RetryMiddleOCRProvider:
+        name = "retry-middle-ocr"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def extract_text(self, image: bytes, mime_type: str, options: OCROptions) -> str:
+            self.calls += 1
+            if self.calls == 2:
+                raise OCRProviderError("middle failed")
+            if self.calls == 4:
+                return "Recovered middle"
+            return f"Page {self.calls} text"
+
+    provider = RetryMiddleOCRProvider()
+    monkeypatch.setattr("tts_app.api.get_ocr_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files=[
+            ("image", ("page-1.png", b"fake-image-one", "image/png")),
+            ("image", ("page-2.png", b"fake-image-two", "image/png")),
+            ("image", ("page-3.png", b"fake-image-three", "image/png")),
+        ],
+    ).json()
+    client.put(f"/api/ocr-drafts/{draft['id']}", json={"language": "en", "combined_text": "User edit"})
+
+    response = client.post(f"/api/ocr-drafts/{draft['id']}/images/{draft['images'][1]['id']}/retry")
+
+    assert response.status_code == 200
+    assert response.json()["combined_text"] == "Page 1 text\n\nRecovered middle\n\nPage 3 text"
 
 
 def test_ocr_image_endpoint_serves_stored_image(test_settings):
@@ -613,6 +646,7 @@ def test_delete_ocr_draft_image_removes_file(test_settings):
     updated = client.get(f"/api/ocr-drafts/{draft['id']}").json()
     assert len(updated["images"]) == 1
     assert updated["images"][0]["position"] == 0
+    assert updated["combined_text"] == updated["images"][0]["extracted_text"]
 
 
 def test_image_generation_passes_selected_language_to_tts_provider(test_settings, monkeypatch):
@@ -671,7 +705,7 @@ def test_failed_ocr_draft_generation_is_rejected_until_reviewed(test_settings, m
     )
     update = client.put(
         f"/api/ocr-drafts/{draft['id']}",
-        json={"language": "en", "images": [{"id": draft["images"][0]["id"], "extracted_text": "Reviewed text."}]},
+        json={"language": "en", "combined_text": "Reviewed text."},
     )
     reviewed_generation = client.post(
         f"/api/ocr-drafts/{draft['id']}/generation",
@@ -680,8 +714,7 @@ def test_failed_ocr_draft_generation_is_rejected_until_reviewed(test_settings, m
 
     assert failed_generation.status_code == 400
     assert update.status_code == 200
-    assert update.json()["status"] == "completed"
-    assert update.json()["error"] is None
+    assert update.json()["combined_text"] == "Reviewed text."
     assert reviewed_generation.status_code == 200
 
 

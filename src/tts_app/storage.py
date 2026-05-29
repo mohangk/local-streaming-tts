@@ -93,6 +93,7 @@ class Storage:
             self._ensure_generation_progress_columns(conn)
             self._drop_incompatible_ocr_tables(conn)
             self._create_ocr_tables(conn)
+            self._ensure_ocr_draft_combined_text_column(conn)
             self._mark_empty_running_ocr_drafts_failed(conn)
             self._ensure_voice_preferences_language_key(conn)
             conn.execute(
@@ -150,6 +151,7 @@ class Storage:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ocr_model TEXT NOT NULL,
                 language TEXT NOT NULL CHECK (language IN ('en', 'zh')),
+                combined_text TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'partial_failed', 'failed')),
                 error TEXT,
                 linked_generation_id INTEGER REFERENCES generations(id) ON DELETE SET NULL,
@@ -174,6 +176,24 @@ class Storage:
             );
             """
         )
+
+    def _ensure_ocr_draft_combined_text_column(self, conn: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(ocr_drafts)").fetchall()}
+        if "combined_text" in columns:
+            return
+
+        conn.execute("ALTER TABLE ocr_drafts ADD COLUMN combined_text TEXT NOT NULL DEFAULT ''")
+        draft_ids = [
+            int(row["id"])
+            for row in conn.execute(
+                """
+                SELECT id FROM ocr_drafts
+                ORDER BY id
+                """
+            ).fetchall()
+        ]
+        for draft_id in draft_ids:
+            self._rebuild_ocr_draft_combined_text(conn, draft_id)
 
     def _drop_incompatible_ocr_tables(self, conn: sqlite3.Connection) -> None:
         if not self._ocr_tables_are_incompatible(conn):
@@ -528,16 +548,25 @@ class Storage:
             }
         return [self._ocr_draft_dict(row, images_by_draft[int(row["id"])]) for row in rows]
 
-    def update_ocr_draft(self, draft_id: int, *, language: str, image_texts: dict[int, str]) -> None:
+    def update_ocr_draft(
+        self,
+        draft_id: int,
+        *,
+        language: str,
+        combined_text: str | None,
+        image_texts: dict[int, str],
+    ) -> None:
         self._validate_ocr_language(language)
         with self.connection() as conn:
             cur = conn.execute(
                 """
                 UPDATE ocr_drafts
-                SET language = ?, updated_at = CURRENT_TIMESTAMP
+                SET language = ?,
+                    combined_text = COALESCE(?, combined_text),
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (language, draft_id),
+                (language, combined_text, draft_id),
             )
             if cur.rowcount == 0:
                 raise KeyError(f"ocr draft {draft_id} not found")
@@ -553,7 +582,14 @@ class Storage:
                 )
                 if image_cur.rowcount == 0:
                     raise KeyError(f"ocr draft image {image_id} not found")
+            if combined_text is None and image_texts:
+                self._rebuild_ocr_draft_combined_text(conn, draft_id)
             self._refresh_ocr_draft_status(conn, draft_id)
+
+    def rebuild_ocr_draft_combined_text(self, draft_id: int) -> None:
+        with self.connection() as conn:
+            self._ensure_ocr_draft_exists(conn, draft_id)
+            self._rebuild_ocr_draft_combined_text(conn, draft_id)
 
     def update_ocr_draft_image_ocr_result(
         self,
@@ -635,6 +671,7 @@ class Storage:
                     "UPDATE ocr_draft_images SET position = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     (position, row["id"]),
                 )
+            self._rebuild_ocr_draft_combined_text(conn, draft_id)
             self._refresh_ocr_draft_status(conn, draft_id)
         return deleted
 
@@ -698,7 +735,7 @@ class Storage:
     def _ocr_draft_dict(self, row: sqlite3.Row, images: list[dict[str, Any]]) -> dict[str, Any]:
         draft = dict(row)
         draft["images"] = images
-        draft["extracted_text"] = self._combined_ocr_text(images)
+        draft["extracted_text"] = draft["combined_text"]
         first_image = images[0] if images else {}
         for key in ("image_path", "original_filename", "mime_type", "byte_size"):
             draft[key] = first_image.get(key)
@@ -706,6 +743,17 @@ class Storage:
 
     def _combined_ocr_text(self, images: list[dict[str, Any]]) -> str:
         return "\n\n".join(str(image["extracted_text"]).strip() for image in images if str(image["extracted_text"]).strip())
+
+    def _rebuild_ocr_draft_combined_text(self, conn: sqlite3.Connection, draft_id: int) -> None:
+        images = self._list_ocr_draft_images(conn, draft_id)
+        conn.execute(
+            """
+            UPDATE ocr_drafts
+            SET combined_text = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (self._combined_ocr_text(images), draft_id),
+        )
 
     def _refresh_ocr_draft_status(self, conn: sqlite3.Connection, draft_id: int) -> None:
         rows = conn.execute(

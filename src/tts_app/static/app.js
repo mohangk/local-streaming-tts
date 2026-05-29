@@ -34,14 +34,13 @@ const navButtons = document.querySelectorAll(".nav-button");
 const textModeButton = document.querySelector("#text-mode");
 const urlModeButton = document.querySelector("#url-mode");
 const imageModeButton = document.querySelector("#image-mode");
+const draftImagesModeButton = document.querySelector("#draft-images-mode");
 const textInput = document.querySelector("#text-input");
 const urlInput = document.querySelector("#url-input");
-const imageCameraInput = document.querySelector("#image-camera-input");
 const imageUploadInput = document.querySelector("#image-upload-input");
 const textLabel = document.querySelector("#text-label");
 const urlLabel = document.querySelector("#url-label");
 const imageActions = document.querySelector("#image-actions");
-const takeImagePhotoButton = document.querySelector("#take-image-photo");
 const uploadImageFilesButton = document.querySelector("#upload-image-files");
 const clearImageSelectionButton = document.querySelector("#clear-image-selection");
 const extractImageTextButton = document.querySelector("#extract-image-text");
@@ -55,12 +54,14 @@ const generateOcrAudioButton = document.querySelector("#generate-ocr-audio");
 const ocrDraftsList = document.querySelector("#ocr-drafts-list");
 const generateForm = document.querySelector("#generate-form");
 const generateSubmitButton = generateForm.querySelector('button[type="submit"]');
+const optionGrid = document.querySelector(".option-grid");
 const languageSelect = document.querySelector("#language-select");
 const voiceSelect = document.querySelector("#voice-select");
 const voiceStar = document.querySelector("#voice-star");
 const voiceSample = document.querySelector("#voice-sample");
 const speedSelect = document.querySelector("#speed-select");
 const autoplayInput = document.querySelector("#autoplay");
+const autoplayRow = autoplayInput.closest(".toggle-row");
 const historySearch = document.querySelector("#history-search");
 const historyList = document.querySelector("#history-list");
 const backToHistory = document.querySelector("#back-to-history");
@@ -69,6 +70,9 @@ const playerStatus = document.querySelector("#player-status");
 const scrollFollow = document.querySelector("#scroll-follow");
 const readingPane = document.querySelector("#reading-pane");
 const audioPlayer = document.querySelector("#audio-player");
+const imagePreviewOverlay = document.querySelector("#image-preview-overlay");
+const imagePreviewClose = document.querySelector("#image-preview-close");
+const imagePreviewImage = document.querySelector("#image-preview-image");
 
 function showView(viewId) {
   views.forEach((view) => {
@@ -87,14 +91,15 @@ function setInputMode(mode) {
   const isText = mode === "text";
   const isUrl = mode === "url";
   const isImage = mode === "image";
+  const isDraftImages = mode === "draft-images";
   textModeButton.classList.toggle("active", isText);
   urlModeButton.classList.toggle("active", isUrl);
   imageModeButton.classList.toggle("active", isImage);
+  draftImagesModeButton.classList.toggle("active", isDraftImages);
   textInput.classList.toggle("hidden", !isText);
   textLabel.classList.toggle("hidden", !isText);
   urlInput.classList.toggle("hidden", !isUrl);
   urlLabel.classList.toggle("hidden", !isUrl);
-  imageCameraInput.classList.add("hidden");
   imageUploadInput.classList.add("hidden");
   imageActions.classList.toggle("hidden", !isImage);
   imageSelectionList.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
@@ -102,9 +107,12 @@ function setInputMode(mode) {
   extractImageTextButton.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
   ocrReviewList.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
   generateOcrAudioButton.classList.toggle("hidden", !isImage || !state.currentOcrDraftId);
-  ocrDraftsList.classList.toggle("hidden", !isImage);
-  generateSubmitButton.classList.toggle("hidden", isImage);
-  if (isImage) {
+  ocrDraftsList.classList.toggle("hidden", !isDraftImages);
+  generateSubmitButton.classList.toggle("hidden", isImage || isDraftImages);
+  optionGrid.classList.toggle("hidden", isDraftImages);
+  voiceSample.classList.toggle("hidden", isDraftImages);
+  autoplayRow.classList.toggle("hidden", isDraftImages);
+  if (isDraftImages) {
     loadOcrDrafts();
   }
 }
@@ -176,7 +184,7 @@ function selectedVoiceOption() {
 
 async function submitGeneration(event) {
   event.preventDefault();
-  if (state.inputMode === "image") {
+  if (state.inputMode === "image" || state.inputMode === "draft-images") {
     return;
   }
   const isText = state.inputMode === "text";
@@ -451,6 +459,9 @@ async function deleteGeneration(generationId, button = null) {
 function showOcrDraft(draft) {
   state.currentOcrDraftId = draft.id;
   state.currentOcrDraft = draft;
+  if (state.inputMode !== "image") {
+    setInputMode("image");
+  }
   if (draft.language) {
     languageSelect.value = draft.language;
     renderOptions();
@@ -479,21 +490,23 @@ function renderOcrReview() {
     ocrReviewList.innerHTML = "";
     return;
   }
-  if (!draft.images || draft.images.length === 0) {
-    ocrReviewList.innerHTML = '<div class="history-item">No images stored for this draft</div>';
-    return;
-  }
-  ocrReviewList.innerHTML = (draft.images || [])
+  const images = draft.images || [];
+  const thumbnails = images
     .map((image) => {
       const error = image.error ? `<div class="history-item-url">${escapeHtml(image.error)}</div>` : "";
       const retryButton =
         image.status === "failed" && !draft.linked_generation_id
           ? `<button class="secondary-action compact-action" type="button" data-action="retry-image" data-image-id="${image.id}">Retry OCR</button>`
           : "";
+      const removeButton = !draft.linked_generation_id
+        ? `<button class="danger-action compact-action" type="button" data-action="delete-image" data-image-id="${image.id}">Remove</button>`
+        : "";
       return `
         <article class="ocr-image-card" data-image-id="${image.id}">
           <div class="ocr-image-header">
-            <img class="ocr-thumbnail" src="/api/ocr-drafts/${draft.id}/images/${image.id}" alt="OCR image ${image.position + 1}" />
+            <button class="ocr-thumbnail-button" type="button" data-action="preview-image" data-draft-id="${draft.id}" data-image-id="${image.id}" aria-label="Preview OCR image ${image.position + 1}">
+              <img class="ocr-thumbnail" src="/api/ocr-drafts/${draft.id}/images/${image.id}" alt="OCR image ${image.position + 1}" />
+            </button>
             <div>
               <div class="history-item-title">Image ${image.position + 1}</div>
               <div class="history-item-meta">${escapeHtml(image.status)} ${escapeHtml(image.original_filename || "")}</div>
@@ -501,25 +514,25 @@ function renderOcrReview() {
             </div>
             <div class="ocr-image-actions">
               ${retryButton}
-              <button class="danger-action compact-action" type="button" data-action="delete-image" data-image-id="${image.id}">Remove</button>
+              ${removeButton}
             </div>
           </div>
-          <textarea class="ocr-image-text" data-image-id="${image.id}" rows="7" aria-label="Reviewed OCR text for image ${image.position + 1}">${escapeHtml(image.extracted_text || "")}</textarea>
         </article>
       `;
     })
     .join("");
+  ocrReviewList.innerHTML = `
+    <textarea class="ocr-combined-text" rows="10" aria-label="Reviewed OCR text">${escapeHtml(draft.combined_text || "")}</textarea>
+    ${images.length ? `<div class="ocr-thumbnail-strip">${thumbnails}</div>` : '<div class="history-item">No images stored for this draft</div>'}
+  `;
 }
 
-function collectOcrImageUpdates() {
-  return Array.from(ocrReviewList.querySelectorAll(".ocr-image-text")).map((textarea) => ({
-    id: Number(textarea.dataset.imageId),
-    extracted_text: textarea.value,
-  }));
+function reviewedOcrText() {
+  return ocrReviewList.querySelector(".ocr-combined-text")?.value || "";
 }
 
 function hasReviewedOcrText() {
-  return collectOcrImageUpdates().some((image) => image.extracted_text.trim());
+  return reviewedOcrText().trim().length > 0;
 }
 
 function updateGenerateOcrAudioState() {
@@ -542,7 +555,7 @@ async function loadOcrDrafts() {
 }
 
 function renderOcrDrafts() {
-  if (state.inputMode !== "image") {
+  if (state.inputMode !== "draft-images") {
     return;
   }
   const unlinkedDrafts = state.ocrDrafts.filter((draft) => !draft.linked_generation_id);
@@ -554,24 +567,38 @@ function renderOcrDrafts() {
     .map((draft) => {
       const created = draft.created_at ? new Date(`${draft.created_at}Z`).toLocaleString() : "";
       const filenames = (draft.images || []).map((image) => image.original_filename).filter(Boolean).join(", ");
-      const preview = draft.extracted_text || draft.error || filenames || "Image draft";
-      const generationButton = draft.linked_generation_id
-        ? `<button class="secondary-action compact-action" type="button" data-action="open-generation" data-generation-id="${draft.linked_generation_id}">Open audio</button>`
-        : "";
+      const preview = draftTextPreview(draft.combined_text || draft.error || filenames || "Image draft");
+      const thumbnails = (draft.images || [])
+        .map(
+          (image) => `
+            <button class="ocr-thumbnail-button" type="button" data-action="preview-image" data-draft-id="${draft.id}" data-image-id="${image.id}" aria-label="Preview image ${image.position + 1}">
+              <img class="ocr-thumbnail" src="/api/ocr-drafts/${draft.id}/images/${image.id}" alt="OCR image ${image.position + 1}" />
+            </button>
+          `,
+        )
+        .join("");
       return `
         <article class="history-item" data-draft-id="${draft.id}">
-          <div class="history-item-title">${escapeHtml(draft.original_filename || "Image draft")}</div>
+          <div class="history-item-title">${escapeHtml(filenames || "Image draft")}</div>
           <div class="history-item-meta">${escapeHtml(draft.status)} ${escapeHtml(created)}</div>
           <div class="history-item-preview">${escapeHtml(preview)}</div>
+          <div class="ocr-thumbnail-strip draft-thumbnail-strip">${thumbnails}</div>
           <div class="history-actions">
-            <button class="secondary-action compact-action" type="button" data-action="open-draft" data-draft-id="${draft.id}">Review</button>
-            ${generationButton}
+            <button class="secondary-action compact-action" type="button" data-action="open-draft" data-draft-id="${draft.id}">Continue</button>
             <button class="danger-action compact-action" type="button" data-action="delete-draft" data-draft-id="${draft.id}">Delete</button>
           </div>
         </article>
       `;
     })
     .join("");
+}
+
+function draftTextPreview(text) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= 180) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 177)}...`;
 }
 
 function pendingImageLabel(file, index) {
@@ -621,7 +648,6 @@ function removePendingOcrImage(index) {
 
 function clearPendingOcrImages(options = {}) {
   state.pendingOcrImages = [];
-  imageCameraInput.value = "";
   imageUploadInput.value = "";
   renderPendingOcrImages();
   if (!options.silent) {
@@ -662,9 +688,7 @@ function setOcrUploadActive(active) {
   } else {
     state.ocrUploadXhr = null;
   }
-  imageCameraInput.disabled = active;
   imageUploadInput.disabled = active;
-  takeImagePhotoButton.disabled = active;
   uploadImageFilesButton.disabled = active;
   clearImageSelectionButton.disabled = active;
   languageSelect.disabled = active;
@@ -899,12 +923,12 @@ async function generateOcrAudio() {
   stopPlayback();
   state.autoplay = autoplayInput.checked;
   const language = currentLanguage();
-  const images = collectOcrImageUpdates();
+  const combinedText = reviewedOcrText();
   try {
     const update = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ language, images }),
+      body: JSON.stringify({ language, combined_text: combinedText }),
     });
     if (!update.ok) {
       const error = await update.json();
@@ -979,6 +1003,20 @@ async function deleteOcrDraftImage(draftId, imageId, button = null) {
       playerStatus.textContent = "Unable to remove image";
     }
   });
+}
+
+function openImagePreview(draftId, imageId, alt = "Image preview") {
+  imagePreviewImage.src = `/api/ocr-drafts/${draftId}/images/${imageId}`;
+  imagePreviewImage.alt = alt;
+  imagePreviewOverlay.classList.remove("hidden");
+  imagePreviewOverlay.setAttribute("aria-hidden", "false");
+}
+
+function closeImagePreview() {
+  imagePreviewOverlay.classList.add("hidden");
+  imagePreviewOverlay.setAttribute("aria-hidden", "true");
+  imagePreviewImage.removeAttribute("src");
+  imagePreviewImage.alt = "";
 }
 
 async function openGeneration(generationId, options = {}) {
@@ -1225,6 +1263,7 @@ navButtons.forEach((button) => {
 textModeButton.addEventListener("click", () => setInputMode("text"));
 urlModeButton.addEventListener("click", () => setInputMode("url"));
 imageModeButton.addEventListener("click", () => setInputMode("image"));
+draftImagesModeButton.addEventListener("click", () => setInputMode("draft-images"));
 generateForm.addEventListener("submit", submitGeneration);
 historySearch.addEventListener("input", renderHistory);
 backToHistory.addEventListener("click", () => {
@@ -1259,10 +1298,18 @@ historyList.addEventListener("click", (event) => {
 ocrDraftsList.addEventListener("click", (event) => {
   const action = event.target.closest("[data-action]");
   const draftItem = event.target.closest("[data-draft-id]");
-  if (!action || !draftItem) {
+  if (!draftItem) {
     return;
   }
   const draftId = Number(draftItem.dataset.draftId);
+  if (!action) {
+    openOcrDraft(draftId);
+    return;
+  }
+  if (action.dataset.action === "preview-image") {
+    openImagePreview(Number(action.dataset.draftId), Number(action.dataset.imageId), action.querySelector("img")?.alt || "Image preview");
+    return;
+  }
   if (action.dataset.action === "delete-draft") {
     deleteOcrDraft(Number(action.dataset.draftId), action);
     return;
@@ -1277,11 +1324,20 @@ ocrDraftsList.addEventListener("click", (event) => {
   }
 });
 
-ocrReviewList.addEventListener("input", updateGenerateOcrAudioState);
+ocrReviewList.addEventListener("input", () => {
+  if (state.currentOcrDraft) {
+    state.currentOcrDraft.combined_text = reviewedOcrText();
+  }
+  updateGenerateOcrAudioState();
+});
 
 ocrReviewList.addEventListener("click", (event) => {
   const action = event.target.closest("[data-action]");
   if (!action || !state.currentOcrDraftId) {
+    return;
+  }
+  if (action.dataset.action === "preview-image") {
+    openImagePreview(state.currentOcrDraftId, Number(action.dataset.imageId), action.querySelector("img")?.alt || "Image preview");
     return;
   }
   if (action.dataset.action === "delete-image") {
@@ -1292,6 +1348,14 @@ ocrReviewList.addEventListener("click", (event) => {
     retryOcrDraftImage(state.currentOcrDraftId, Number(action.dataset.imageId), action);
   }
 });
+
+imagePreviewOverlay.addEventListener("click", (event) => {
+  if (event.target === imagePreviewOverlay) {
+    closeImagePreview();
+  }
+});
+
+imagePreviewClose.addEventListener("click", closeImagePreview);
 
 readingPane.addEventListener("click", (event) => {
   const segment = event.target.closest("[data-segment-index]");
@@ -1322,13 +1386,8 @@ languageSelect.addEventListener("change", renderOptions);
 voiceSelect.addEventListener("change", updateVoiceStar);
 voiceStar.addEventListener("click", toggleVoicePreference);
 voiceSample.addEventListener("click", playVoiceSample);
-takeImagePhotoButton.addEventListener("click", () => imageCameraInput.click());
 uploadImageFilesButton.addEventListener("click", () => imageUploadInput.click());
 clearImageSelectionButton.addEventListener("click", clearPendingOcrImages);
-imageCameraInput.addEventListener("change", () => {
-  appendPendingOcrImages(Array.from(imageCameraInput.files || []));
-  imageCameraInput.value = "";
-});
 imageUploadInput.addEventListener("change", () => {
   appendPendingOcrImages(Array.from(imageUploadInput.files || []));
   imageUploadInput.value = "";
@@ -1381,5 +1440,12 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !imagePreviewOverlay.classList.contains("hidden")) {
+    closeImagePreview();
+  }
+});
+
+setInputMode(state.inputMode);
 loadOptions();
 loadHistory();

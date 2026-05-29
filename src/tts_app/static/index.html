@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Readvox</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=ocr-combined-review-2" />
   </head>
   <body>
     <main class="app-shell">
@@ -14,16 +14,15 @@
           <button id="text-mode" class="mode-tab active" type="button">Text</button>
           <button id="url-mode" class="mode-tab" type="button">URL</button>
           <button id="image-mode" class="mode-tab" type="button">Image</button>
+          <button id="draft-images-mode" class="mode-tab" type="button">Draft Images</button>
         </div>
         <form id="generate-form" class="panel">
           <label id="text-label" class="field-label" for="text-input">Text</label>
           <textarea id="text-input" rows="9" aria-label="Text to read aloud"></textarea>
           <label id="url-label" class="field-label hidden" for="url-input">URL</label>
           <input id="url-input" class="hidden" type="url" aria-label="Page URL" />
-          <input id="image-camera-input" class="hidden" type="file" accept="image/*" capture="environment" aria-label="Take photo for OCR" />
           <input id="image-upload-input" class="hidden" type="file" accept="image/*" multiple aria-label="Upload images for OCR" />
           <div id="image-actions" class="image-actions hidden">
-            <button id="take-image-photo" class="secondary-action" type="button">Take photo</button>
             <button id="upload-image-files" class="secondary-action" type="button">Upload images</button>
             <button id="clear-image-selection" class="secondary-action hidden" type="button">Clear</button>
             <button id="extract-image-text" class="secondary-action hidden" type="button">Extract text</button>
@@ -36,7 +35,7 @@
           <div id="image-selection-list" class="image-selection-list hidden" aria-live="polite"></div>
           <div id="ocr-review-list" class="ocr-review-list hidden"></div>
           <button id="generate-ocr-audio" class="primary-action hidden" type="button">Generate audio</button>
-          <div id="ocr-drafts-list" class="history-list"></div>
+          <div id="ocr-drafts-list" class="history-list hidden"></div>
           <div class="option-grid">
             <label class="field-label" for="language-select">
               Language
@@ -93,7 +92,14 @@
       <button data-view="history-view" class="nav-button" type="button">History</button>
     </nav>
 
+    <div id="image-preview-overlay" class="image-preview-overlay hidden" aria-hidden="true">
+      <div class="image-preview-dialog" role="dialog" aria-modal="true" aria-label="Image preview">
+        <button id="image-preview-close" class="secondary-action compact-action image-preview-close" type="button" aria-label="Close image preview">Close</button>
+        <img id="image-preview-image" class="image-preview-image" alt="" />
+      </div>
+    </div>
+
     <audio id="audio-player"></audio>
-    <script src="/static/app.js" defer></script>
+    <script src="/static/app.js?v=ocr-combined-review-2" defer></script>
   </body>
 </html>

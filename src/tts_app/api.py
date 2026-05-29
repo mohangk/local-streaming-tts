@@ -71,6 +71,7 @@ class OcrDraftImageUpdate(BaseModel):
 
 class OcrDraftUpdateRequest(BaseModel):
     language: str
+    combined_text: str | None = None
     images: list[OcrDraftImageUpdate] = Field(default_factory=list)
     extracted_text: str | None = None
 
@@ -254,13 +255,14 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
                 error=None,
             )
 
+        storage.rebuild_ocr_draft_combined_text(draft_id)
         draft = storage.get_ocr_draft(draft_id)
         logger.info(
             "ocr_draft_created draft_id=%s language=%s image_count=%s text_chars=%s status=%s",
             draft_id,
             language,
             len(draft["images"]),
-            len(draft["extracted_text"]),
+            len(draft["combined_text"]),
             draft["status"],
         )
         return draft
@@ -326,6 +328,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
                 status="failed",
                 error=str(exc),
             )
+            storage.rebuild_ocr_draft_combined_text(draft_id)
             logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, exc, exc_info=True)
             return storage.get_ocr_draft(draft_id)
 
@@ -339,6 +342,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
                 status="failed",
                 error=error,
             )
+            storage.rebuild_ocr_draft_combined_text(draft_id)
             logger.warning("ocr_draft_image_failed draft_id=%s image_id=%s error=%s", draft_id, image_id, error)
             return storage.get_ocr_draft(draft_id)
 
@@ -350,6 +354,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             status="completed",
             error=None,
         )
+        storage.rebuild_ocr_draft_combined_text(draft_id)
         logger.info("ocr_draft_image_retried draft_id=%s image_id=%s text_chars=%s", draft_id, image_id, len(extracted_text))
         return storage.get_ocr_draft(draft_id)
 
@@ -357,11 +362,11 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     async def update_ocr_draft(draft_id: int, payload: OcrDraftUpdateRequest):
         _validate_ocr_language(payload.language)
         try:
-            draft = storage.get_ocr_draft(draft_id)
             image_texts = {item.id: item.extracted_text for item in payload.images}
-            if payload.extracted_text is not None and draft["images"] and not image_texts:
-                image_texts[int(draft["images"][0]["id"])] = payload.extracted_text
-            storage.update_ocr_draft(draft_id, language=payload.language, image_texts=image_texts)
+            combined_text = payload.combined_text
+            if combined_text is None and payload.extracted_text is not None:
+                combined_text = payload.extracted_text
+            storage.update_ocr_draft(draft_id, language=payload.language, combined_text=combined_text, image_texts=image_texts)
             return storage.get_ocr_draft(draft_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="ocr draft not found") from exc
@@ -404,7 +409,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
 
         if draft["linked_generation_id"] is not None:
             raise HTTPException(status_code=409, detail="ocr draft is already linked to a generation")
-        reviewed_text = str(draft["extracted_text"]).strip()
+        reviewed_text = str(draft["combined_text"]).strip()
         if not reviewed_text.strip():
             raise HTTPException(status_code=400, detail="ocr draft text is empty")
         voice = payload.voice or _default_voice_for_language(active_settings, payload.language)

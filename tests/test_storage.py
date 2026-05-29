@@ -445,8 +445,100 @@ def test_ocr_draft_round_trip_with_ordered_images(test_settings):
     assert draft["language"] == "zh"
     assert [image["id"] for image in draft["images"]] == [first_image_id, second_image_id]
     assert [image["extracted_text"] for image in draft["images"]] == ["你好", "ni hao"]
-    assert draft["extracted_text"] == "你好\n\nni hao"
+    assert draft["combined_text"] == ""
     assert storage.list_ocr_drafts()[0]["id"] == draft_id
+
+
+def test_ocr_draft_combined_text_is_persisted_separately_from_images(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    draft_id = storage.create_ocr_draft("fake-ocr", "en", "completed")
+    image_id = storage.create_ocr_draft_image(
+        draft_id, 0, "images/1/1/source.png", None, "image/png", 10, "raw text", "completed"
+    )
+
+    storage.update_ocr_draft(draft_id, language="en", combined_text="Reviewed text.", image_texts={})
+
+    draft = storage.get_ocr_draft(draft_id)
+    assert draft["combined_text"] == "Reviewed text."
+    assert draft["images"][0]["id"] == image_id
+    assert draft["images"][0]["extracted_text"] == "raw text"
+
+
+def test_rebuild_ocr_draft_combined_text_uses_image_text_in_order(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    draft_id = storage.create_ocr_draft("fake-ocr", "en", "partial_failed")
+    storage.create_ocr_draft_image(draft_id, 0, "images/1/1/source.png", None, "image/png", 10, "first", "completed")
+    storage.create_ocr_draft_image(draft_id, 1, "images/1/2/source.png", None, "image/png", 10, "", "failed", "bad image")
+    storage.create_ocr_draft_image(draft_id, 2, "images/1/3/source.png", None, "image/png", 10, "third", "completed")
+    storage.update_ocr_draft(draft_id, language="en", combined_text="Edited text.", image_texts={})
+
+    storage.rebuild_ocr_draft_combined_text(draft_id)
+
+    assert storage.get_ocr_draft(draft_id)["combined_text"] == "first\n\nthird"
+
+
+def test_init_schema_migrates_existing_ocr_drafts_to_combined_text(test_settings):
+    test_settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(test_settings.db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE ocr_drafts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ocr_model TEXT NOT NULL,
+                language TEXT NOT NULL CHECK (language IN ('en', 'zh')),
+                status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'partial_failed', 'failed')),
+                error TEXT,
+                linked_generation_id INTEGER REFERENCES generations(id) ON DELETE SET NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE ocr_draft_images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ocr_draft_id INTEGER NOT NULL REFERENCES ocr_drafts(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL CHECK (position >= 0),
+                image_path TEXT NOT NULL,
+                original_filename TEXT,
+                mime_type TEXT NOT NULL,
+                byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+                extracted_text TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+                error TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ocr_draft_id, position)
+            );
+            """
+        )
+        conn.execute("INSERT INTO ocr_drafts (ocr_model, language, status) VALUES ('fake-ocr', 'en', 'completed')")
+        draft_id = conn.execute("SELECT id FROM ocr_drafts").fetchone()[0]
+        conn.execute(
+            """
+            INSERT INTO ocr_draft_images
+                (ocr_draft_id, position, image_path, mime_type, byte_size, extracted_text, status)
+            VALUES (?, 0, 'images/1/1/source.png', 'image/png', 10, 'old first', 'completed')
+            """,
+            (draft_id,),
+        )
+        conn.execute(
+            """
+            INSERT INTO ocr_draft_images
+                (ocr_draft_id, position, image_path, mime_type, byte_size, extracted_text, status)
+            VALUES (?, 1, 'images/1/2/source.png', 'image/png', 10, 'old second', 'completed')
+            """,
+            (draft_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+
+    assert storage.get_ocr_draft(draft_id)["combined_text"] == "old first\n\nold second"
 
 
 def test_update_ocr_draft_image_text_and_language(test_settings):
@@ -457,10 +549,11 @@ def test_update_ocr_draft_image_text_and_language(test_settings):
         draft_id, 0, "images/1/1/source.png", None, "image/png", 10, "raw", "completed"
     )
 
-    storage.update_ocr_draft(draft_id, language="zh", image_texts={image_id: "reviewed text"})
+    storage.update_ocr_draft(draft_id, language="zh", combined_text="reviewed text", image_texts={image_id: "raw update"})
 
     draft = storage.get_ocr_draft(draft_id)
-    assert draft["images"][0]["extracted_text"] == "reviewed text"
+    assert draft["combined_text"] == "reviewed text"
+    assert draft["images"][0]["extracted_text"] == "raw update"
     assert draft["language"] == "zh"
 
 
@@ -570,7 +663,7 @@ def test_invalid_ocr_draft_language_is_rejected(test_settings):
         storage.create_ocr_draft("fake-ocr", "fr", "completed")
 
     with pytest.raises(ValueError, match="ocr draft language must be en or zh"):
-        storage.update_ocr_draft(draft_id, language="fr", image_texts={})
+        storage.update_ocr_draft(draft_id, language="fr", combined_text="", image_texts={})
 
 
 def test_init_schema_marks_empty_running_ocr_drafts_failed(test_settings):

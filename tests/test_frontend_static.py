@@ -21,6 +21,8 @@ def test_frontend_has_generate_history_and_playback_views():
     assert 'id="voice-star"' in html
     assert 'id="voice-sample"' in html
     assert 'id="speed-select"' in html
+    assert 'href="/static/styles.css?v=' in html
+    assert 'src="/static/app.js?v=' in html
 
 
 def test_frontend_javascript_uses_history_and_event_endpoints():
@@ -50,9 +52,7 @@ def test_frontend_has_image_input_controls():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     assert 'id="image-mode"' in html
-    assert 'id="image-camera-input"' in html
     assert 'id="image-upload-input"' in html
-    assert 'id="take-image-photo"' in html
     assert 'id="upload-image-files"' in html
     assert 'id="clear-image-selection"' in html
     assert 'id="image-selection-list"' in html
@@ -60,10 +60,21 @@ def test_frontend_has_image_input_controls():
     assert 'id="ocr-upload-bar"' in html
     assert 'id="cancel-ocr-upload"' in html
     assert 'accept="image/*"' in html
-    assert 'capture="environment"' in html
     assert "multiple" in html
     assert 'id="ocr-review-list"' in html
-    assert 'id="ocr-drafts-list"' in html
+    assert 'id="image-camera-input"' not in html
+    assert 'id="take-image-photo"' not in html
+    assert 'capture="environment"' not in html
+
+
+def test_frontend_has_draft_images_mode_and_preview_overlay():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="draft-images-mode"' in html
+    assert 'id="ocr-drafts-list" class="history-list hidden"' in html
+    assert 'id="image-preview-overlay"' in html
+    assert 'id="image-preview-close"' in html
+    assert 'id="image-preview-image"' in html
 
 
 def test_frontend_styles_action_button_feedback_states():
@@ -73,6 +84,12 @@ def test_frontend_styles_action_button_feedback_states():
     assert ".is-busy" in css
     assert ".is-busy::after" in css
     assert "aria-busy" in css
+
+
+def test_frontend_hidden_class_overrides_display_utility_classes():
+    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert ".hidden { display: none !important; }" in css
 
 
 def test_frontend_styles_ocr_upload_progress_panel():
@@ -103,18 +120,17 @@ def test_frontend_javascript_uses_ocr_draft_endpoints():
     assert "forEach((image)" in js
 
 
-def test_frontend_queues_camera_and_uploaded_images_before_ocr():
+def test_frontend_queues_uploaded_images_before_ocr():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 
     assert "pendingOcrImages: []" in js
-    assert 'document.querySelector("#image-camera-input")' in js
     assert 'document.querySelector("#image-upload-input")' in js
-    assert 'document.querySelector("#take-image-photo")' in js
     assert 'document.querySelector("#upload-image-files")' in js
-    assert "appendPendingOcrImages(Array.from(imageCameraInput.files || []))" in js
     assert "appendPendingOcrImages(Array.from(imageUploadInput.files || []))" in js
     assert "renderPendingOcrImages()" in js
     assert "clearPendingOcrImages" in js
+    assert "imageCameraInput" not in js
+    assert "takeImagePhotoButton" not in js
 
 
 def test_frontend_resizes_large_ocr_images_before_upload():
@@ -153,24 +169,26 @@ def test_frontend_disables_image_controls_during_ocr_upload():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     controls = js.split("function setOcrUploadActive", 1)[1].split("function uploadOcrDraft", 1)[0]
 
-    assert "imageCameraInput.disabled = active" in controls
     assert "imageUploadInput.disabled = active" in controls
-    assert "takeImagePhotoButton.disabled = active" in controls
     assert "uploadImageFilesButton.disabled = active" in controls
     assert "clearImageSelectionButton.disabled = active" in controls
     assert "languageSelect.disabled = active" in controls
+    assert "imageCameraInput" not in controls
+    assert "takeImagePhotoButton" not in controls
 
 
-def test_frontend_renders_thumbnails_and_per_image_review_controls():
+def test_frontend_renders_one_combined_ocr_textarea_and_active_thumbnails():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     renderer = js.split("function renderOcrReview()", 1)[1].split("async function loadOcrDrafts()", 1)[0]
 
+    assert "ocr-combined-text" in renderer
+    assert "draft.combined_text" in renderer
     assert "ocr-thumbnail" in renderer
     assert "data-image-id" in renderer
     assert "data-action=\"delete-image\"" in renderer
     assert "data-action=\"retry-image\"" in renderer
     assert "Retry OCR" in renderer
-    assert "ocr-image-text" in renderer
+    assert "ocr-image-text" not in renderer
     assert "No images stored for this draft" in renderer
 
 
@@ -198,13 +216,22 @@ def test_frontend_marks_ocr_draft_linked_after_generation_success():
     assert "Audio already generated" in js
 
 
-def test_frontend_hides_linked_ocr_drafts_from_image_generation_list():
+def test_frontend_draft_images_mode_owns_unlinked_draft_list():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     renderer = js.split("function renderOcrDrafts()", 1)[1].split("function pendingImageLabel", 1)[0]
+    image_mode = js.split("function setInputMode", 1)[1].split("function escapeHtml", 1)[0]
 
     assert "unlinkedDrafts" in renderer
     assert "draft.linked_generation_id" in renderer
     assert "No image drafts" in renderer
+    assert "state.inputMode !== \"draft-images\"" in renderer
+    assert "draft.combined_text" in renderer
+    assert "draft-thumbnail-strip" in renderer
+    assert "data-action=\"preview-image\"" in renderer
+    assert "Continue" in renderer
+    assert "ocrDraftsList.classList.toggle(\"hidden\", !isDraftImages)" in image_mode
+    assert "setInputMode(state.inputMode)" in js
+    assert "state.inputMode === \"image\" || state.inputMode === \"draft-images\"" in js
 
 
 def test_frontend_wraps_async_button_actions_with_busy_state():
@@ -233,6 +260,17 @@ def test_frontend_history_and_ocr_actions_pass_buttons_for_feedback():
     assert "retryOcrDraftImage(state.currentOcrDraftId, Number(action.dataset.imageId), action)" in js
     assert "withButtonBusy(button, \"Retrying...\"" in js
     assert "/retry" in js
+
+
+def test_frontend_image_preview_opens_from_thumbnails_and_closes():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "function openImagePreview" in js
+    assert "function closeImagePreview" in js
+    assert "imagePreviewOverlay.addEventListener(\"click\"" in js
+    assert "imagePreviewClose.addEventListener(\"click\", closeImagePreview)" in js
+    assert "event.key === \"Escape\"" in js
+    assert "data-action=\"preview-image\"" in js
 
 
 def test_frontend_voice_sample_marks_sample_playback_state():

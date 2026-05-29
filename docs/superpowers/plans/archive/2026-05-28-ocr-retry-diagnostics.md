@@ -1,10 +1,12 @@
 # OCR Retry And Diagnostics Implementation Plan
 
+> Historical implementation plan. For the current OCR behavior and data model, read `docs/superpowers/specs/2026-05-03-image-ocr-generation-design.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let users retry failed OCR image extraction without reuploading images, and make OCR provider failures diagnosable from application logs.
 
-**Architecture:** The backend adds a per-image OCR retry endpoint that reuses the stored image file and refreshes the parent draft status through existing storage APIs. The frontend shows `Retry OCR` only for failed, unlinked OCR draft images and reuses the existing busy-button feedback pattern. Qwen OCR request failures include the HTTP exception class so empty `httpx` exception messages no longer produce blank errors.
+**Architecture:** The backend adds a per-image OCR retry endpoint that reuses the stored image file, updates the image row's raw `extracted_text`, rebuilds draft `combined_text`, and refreshes the parent draft status through existing storage APIs. The frontend shows `Retry OCR` only for failed, unlinked active-draft images and reuses the existing busy-button feedback pattern. Qwen OCR request failures include the HTTP exception class so empty `httpx` exception messages no longer produce blank errors.
 
 **Tech Stack:** FastAPI, SQLite-backed storage, Qwen OCR provider wrapper, lightweight vanilla JavaScript, pytest API/provider/static frontend tests.
 
@@ -14,7 +16,7 @@
 
 - Modify `src/tts_app/api.py`: add per-image retry endpoint and richer OCR failure logging.
 - Modify `src/tts_app/ocr_providers/qwen.py`: include HTTP exception type in provider errors.
-- Modify `src/tts_app/static/app.js`: render `Retry OCR` for failed OCR images and call the retry endpoint.
+- Modify `src/tts_app/static/app.js`: render `Retry OCR` for failed active-draft images and call the retry endpoint.
 - Modify `src/tts_app/static/styles.css`: add compact layout for OCR image actions.
 - Modify `tests/test_api.py`: cover successful retry, linked-draft rejection, and missing image handling.
 - Modify `tests/test_ocr_provider.py`: cover empty-message `httpx` failures.
@@ -44,6 +46,8 @@ Expected responses:
 ```
 
 Retry must not require a new upload. It reads the saved file from the configured image storage path.
+
+Retry updates per-image OCR diagnostics first, then rebuilds the draft-level `combined_text` from all image-level `extracted_text` values in image order. This can overwrite user edits in the combined review textarea after retry; that tradeoff is intentional for the simplified review model.
 
 ---
 
@@ -175,7 +179,7 @@ def test_retry_failed_ocr_image_uses_stored_file_and_updates_draft(test_settings
     body = response.json()
     assert body["status"] == "completed"
     assert body["error"] is None
-    assert body["extracted_text"] == "Recovered OCR text"
+    assert body["combined_text"] == "Recovered OCR text"
     assert body["images"][0]["status"] == "completed"
     assert body["images"][0]["error"] is None
     assert body["images"][0]["extracted_text"] == "Recovered OCR text"
@@ -353,7 +357,7 @@ Update `test_frontend_history_and_ocr_actions_pass_buttons_for_feedback()` with:
 Run:
 
 ```bash
-.venv/bin/pytest tests/test_frontend_static.py::test_frontend_renders_thumbnails_and_per_image_review_controls tests/test_frontend_static.py::test_frontend_history_and_ocr_actions_pass_buttons_for_feedback -q
+.venv/bin/pytest tests/test_frontend_static.py::test_frontend_renders_one_combined_ocr_textarea_and_active_thumbnails tests/test_frontend_static.py::test_frontend_history_and_ocr_actions_pass_buttons_for_feedback -q
 ```
 
 Expected result:
@@ -374,12 +378,20 @@ In `renderOcrReview()` in `src/tts_app/static/app.js`, add:
           : "";
 ```
 
-Replace the single `Remove` button with:
+Render retry alongside the optional `Remove` action in the active draft thumbnail card:
+
+```javascript
+      const removeButton = !draft.linked_generation_id
+        ? `<button class="danger-action compact-action" type="button" data-action="delete-image" data-image-id="${image.id}">Remove</button>`
+        : "";
+```
+
+Use both buttons in the thumbnail card actions:
 
 ```javascript
             <div class="ocr-image-actions">
               ${retryButton}
-              <button class="danger-action compact-action" type="button" data-action="delete-image" data-image-id="${image.id}">Remove</button>
+              ${removeButton}
             </div>
 ```
 
@@ -437,7 +449,7 @@ In `src/tts_app/static/styles.css`, add:
 Run:
 
 ```bash
-.venv/bin/pytest tests/test_frontend_static.py::test_frontend_renders_thumbnails_and_per_image_review_controls tests/test_frontend_static.py::test_frontend_history_and_ocr_actions_pass_buttons_for_feedback -q
+.venv/bin/pytest tests/test_frontend_static.py::test_frontend_renders_one_combined_ocr_textarea_and_active_thumbnails tests/test_frontend_static.py::test_frontend_history_and_ocr_actions_pass_buttons_for_feedback -q
 ```
 
 Expected result:
@@ -506,7 +518,7 @@ Expected result: no output and exit code `0`.
 Stage only OCR retry/diagnostics files and the OCR plan:
 
 ```bash
-git add src/tts_app/api.py src/tts_app/ocr_providers/qwen.py src/tts_app/static/app.js src/tts_app/static/styles.css tests/test_api.py tests/test_ocr_provider.py tests/test_frontend_static.py docs/superpowers/plans/2026-05-28-ocr-retry-diagnostics.md
+git add src/tts_app/api.py src/tts_app/ocr_providers/qwen.py src/tts_app/static/app.js src/tts_app/static/styles.css tests/test_api.py tests/test_ocr_provider.py tests/test_frontend_static.py docs/superpowers/plans/archive/2026-05-28-ocr-retry-diagnostics.md
 git commit -m "feat: retry failed OCR images"
 ```
 
