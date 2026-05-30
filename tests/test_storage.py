@@ -62,6 +62,40 @@ def test_audio_segment_round_trip(test_settings):
     assert detail["audio_segments"][0]["status"] == "completed"
 
 
+def test_list_completed_audio_segments_for_stitching(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A B", "fake", "Test", {})
+    segment_ids = storage.create_text_segments(generation_id, ["A", "B"])
+    first_audio_id = storage.record_audio_segment(
+        generation_id,
+        segment_ids[0],
+        0,
+        "audio/1/segment-0001.mp3",
+        "audio/mpeg",
+        None,
+        3,
+        "completed",
+        None,
+    )
+    second_audio_id = storage.record_audio_segment(
+        generation_id,
+        segment_ids[1],
+        1,
+        "audio/1/segment-0002.mp3",
+        "audio/mpeg",
+        None,
+        4,
+        "completed",
+        None,
+    )
+
+    rows = storage.list_completed_audio_segments_for_stitching(generation_id)
+
+    assert [row["id"] for row in rows] == [first_audio_id, second_audio_id]
+    assert [row["segment_index"] for row in rows] == [0, 1]
+
+
 def test_continuous_audio_artifact_round_trip(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()

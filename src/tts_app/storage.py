@@ -747,6 +747,19 @@ class Storage:
             raise KeyError(f"continuous audio artifact for generation {generation_id} not found")
         return dict(row)
 
+    def list_completed_audio_segments_for_stitching(self, generation_id: int) -> list[dict[str, Any]]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, generation_id, segment_index, file_path, mime_type, byte_size, status
+                FROM audio_segments
+                WHERE generation_id = ? AND status = 'completed'
+                ORDER BY segment_index
+                """,
+                (generation_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_generations(self) -> list[dict[str, Any]]:
         with self.connection() as conn:
             rows = conn.execute(
