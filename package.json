@@ -1,0 +1,13 @@
+{
+  "name": "readvox-frontend-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint:js": "eslint src/tts_app/static/**/*.js",
+    "check:js": "node --check src/tts_app/static/app.js && node --check src/tts_app/static/ocr.js && node --check src/tts_app/static/utils.js && node --check src/tts_app/static/dom.js && node --check src/tts_app/static/state.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1"
+  }
+}
