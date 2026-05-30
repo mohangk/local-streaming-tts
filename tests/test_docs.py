@@ -8,6 +8,8 @@ def test_handoff_docs_exist_and_cover_local_operations():
     agents = Path("AGENTS.md").read_text(encoding="utf-8")
     architecture = Path("docs/architecture.md").read_text(encoding="utf-8")
     architecture_reviewer = Path("docs/architecture-review-subagent.md").read_text(encoding="utf-8")
+    architecture_agent = Path(".codex/agents/architecture-reviewer.toml").read_text(encoding="utf-8")
+    gitignore = Path(".gitignore").read_text(encoding="utf-8")
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert "# Readvox" in readme
@@ -55,12 +57,23 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "Architecture Review" in architecture
     assert "docs/architecture-review-subagent.md" in architecture
     assert "# Architecture Review Subagent" in architecture_reviewer
+    assert ".codex/agents/architecture-reviewer.toml" in architecture_reviewer
+    assert "architecture_reviewer" in architecture_reviewer
     assert "Review the current diff against `docs/architecture.md`" in architecture_reviewer
     assert "Provider boundaries" in architecture_reviewer
     assert "Drafts and linked artifacts" in architecture_reviewer
     assert "Frontend modularity" in architecture_reviewer
     assert "Output format" in architecture_reviewer
+    assert 'name = "architecture_reviewer"' in architecture_agent
+    assert 'sandbox_mode = "read-only"' in architecture_agent
+    assert 'developer_instructions = """' in architecture_agent
+    assert "docs/architecture.md" in architecture_agent
+    assert "Frontend modularity" in architecture_agent
+    assert "Architecture Review" in architecture_agent
+    assert ".codex/*" in gitignore
+    assert "!.codex/agents/*.toml" in gitignore
     assert "docs/architecture.md" in agents
+    assert ".codex/agents/architecture-reviewer.toml" in agents
     assert "docs/architecture-review-subagent.md" in agents
     assert "Storage" in agents
     assert "Private Proxy" in agents

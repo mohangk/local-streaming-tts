@@ -1,6 +1,8 @@
 .venv/
 .envrc.local
-.codex
+.codex/*
+!.codex/agents/
+!.codex/agents/*.toml
 __pycache__/
 *.pyc
 .pytest_cache/

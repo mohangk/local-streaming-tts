@@ -1,6 +1,8 @@
 # Architecture Review Subagent
 
-Use this prompt after every non-trivial change to Readvox. The goal is to catch architectural drift early, especially changes that blur provider, storage, API, frontend, or data-cleanup boundaries.
+Use the project-scoped Codex custom agent in `.codex/agents/architecture-reviewer.toml` after every non-trivial change to Readvox. This file remains the human-readable source for the agent's checklist. The goal is to catch architectural drift early, especially changes that blur provider, storage, API, frontend, or data-cleanup boundaries.
+
+Run it by asking Codex to spawn `architecture_reviewer` against the current diff. Codex custom agent files are standalone TOML files; this repo keeps the agent in `.codex/agents/` so the review behavior travels with the project.
 
 ## Prompt
 
