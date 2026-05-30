@@ -251,7 +251,7 @@ def test_frontend_reports_successful_ocr_deletes_without_reading_204_body():
 
 def test_frontend_marks_ocr_draft_linked_after_generation_success():
     js = frontend_js()
-    generator = js.split("async function generateOcrAudio()", 1)[1].split("async function deleteOcrDraftImage", 1)[0]
+    generator = js.split("async function generateOcrAudio", 1)[1].split("async function deleteOcrDraftImage", 1)[0]
 
     assert "method: \"PUT\"" not in generator
     assert "combined_text: combinedText" in generator
@@ -262,6 +262,15 @@ def test_frontend_marks_ocr_draft_linked_after_generation_success():
     assert "generateOcrAudioButton.classList.add(\"hidden\")" in js
     assert "renderOcrReview()" in linked_helper
     assert "Audio already generated" in js
+
+
+def test_frontend_shows_busy_feedback_while_generating_ocr_audio():
+    js = frontend_js()
+    generator = js.split("async function generateOcrAudio", 1)[1].split("async function deleteOcrDraftImage", 1)[0]
+
+    assert "async function generateOcrAudio(button = null)" in js
+    assert "withButtonBusy(button, \"Generating...\"" in generator
+    assert "generateOcrAudioButton.addEventListener(\"click\", () => generateOcrAudio(generateOcrAudioButton))" in js
 
 
 def test_frontend_draft_images_mode_owns_unlinked_draft_list():

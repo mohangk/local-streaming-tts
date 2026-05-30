@@ -559,46 +559,49 @@ async function clearActiveOcrDraft() {
   });
 }
 
-async function generateOcrAudio() {
+async function generateOcrAudio(button = null) {
   if (!state.currentOcrDraftId || state.currentOcrDraft?.linked_generation_id || !hasReviewedOcrText()) {
     return;
   }
-  stopPlayback();
-  state.autoplay = autoplayInput.checked;
-  const language = currentLanguage();
-  const combinedText = reviewedOcrText();
-  try {
-    const response = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}/generation`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        voice: voiceSelect.value,
-        speed: Number(speedSelect.value || "1"),
-        language,
-        autoplay: state.autoplay,
-        combined_text: combinedText,
-      }),
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      if (response.status === 409) {
-        const refreshed = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}`);
-        if (refreshed.ok) {
-          showOcrDraft(await refreshed.json());
+  await withButtonBusy(button, "Generating...", async () => {
+    stopPlayback();
+    state.autoplay = autoplayInput.checked;
+    const language = currentLanguage();
+    const combinedText = reviewedOcrText();
+    playerStatus.textContent = "Generating audio...";
+    try {
+      const response = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}/generation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          voice: voiceSelect.value,
+          speed: Number(speedSelect.value || "1"),
+          language,
+          autoplay: state.autoplay,
+          combined_text: combinedText,
+        }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        if (response.status === 409) {
+          const refreshed = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}`);
+          if (refreshed.ok) {
+            showOcrDraft(await refreshed.json());
+          }
+          playerStatus.textContent = error.detail || "Audio already generated";
+          return;
         }
-        playerStatus.textContent = error.detail || "Audio already generated";
+        playerStatus.textContent = error.detail || "Image audio generation failed";
         return;
       }
-      playerStatus.textContent = error.detail || "Image audio generation failed";
-      return;
+      const result = await response.json();
+      markCurrentOcrDraftLinked(result.generation_id);
+      await loadOcrDrafts();
+      await openGeneration(result.generation_id, { subscribe: true, autoplay: state.autoplay });
+    } catch {
+      playerStatus.textContent = "Image audio generation failed";
     }
-    const result = await response.json();
-    markCurrentOcrDraftLinked(result.generation_id);
-    await loadOcrDrafts();
-    await openGeneration(result.generation_id, { subscribe: true, autoplay: state.autoplay });
-  } catch {
-    playerStatus.textContent = "Image audio generation failed";
-  }
+  });
 }
 
 async function retryOcrDraftImage(draftId, imageId, button = null) {
@@ -730,7 +733,7 @@ export function registerOcrEvents() {
   });
   cancelOcrUploadButton.addEventListener("click", cancelOcrUpload);
   extractImageTextButton.addEventListener("click", () => extractImageText(extractImageTextButton));
-  generateOcrAudioButton.addEventListener("click", generateOcrAudio);
+  generateOcrAudioButton.addEventListener("click", () => generateOcrAudio(generateOcrAudioButton));
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !imagePreviewOverlay.classList.contains("hidden")) {
