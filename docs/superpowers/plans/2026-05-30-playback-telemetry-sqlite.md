@@ -102,6 +102,31 @@ def test_playback_telemetry_requires_existing_generation(test_settings):
         )
 
 
+def test_playback_telemetry_requires_audio_segment_from_same_generation(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    first_generation_id = storage.create_generation("text", "First", None, "A", "fake", "Test", {})
+    second_generation_id = storage.create_generation("text", "Second", None, "B", "fake", "Test", {})
+    segment_ids = storage.create_text_segments(second_generation_id, ["B"])
+    audio_id = storage.record_audio_segment(
+        second_generation_id,
+        segment_ids[0],
+        0,
+        Path("audio/2/0.mp3"),
+        "audio/mpeg",
+        10,
+        123,
+        Status.COMPLETED,
+    )
+
+    with pytest.raises(KeyError):
+        storage.record_playback_telemetry(
+            first_generation_id,
+            "session-1",
+            [{"event_name": "audio_play", "audio_segment_id": audio_id, "payload": {}}],
+        )
+
+
 def test_playback_telemetry_retains_newest_events_per_generation(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
@@ -142,7 +167,7 @@ def test_delete_generation_cascades_playback_telemetry(test_settings):
 Run:
 
 ```bash
-.venv/bin/pytest tests/test_storage.py::test_playback_telemetry_round_trip tests/test_storage.py::test_playback_telemetry_requires_existing_generation tests/test_storage.py::test_playback_telemetry_retains_newest_events_per_generation tests/test_storage.py::test_delete_generation_cascades_playback_telemetry -q
+.venv/bin/pytest tests/test_storage.py::test_playback_telemetry_round_trip tests/test_storage.py::test_playback_telemetry_requires_existing_generation tests/test_storage.py::test_playback_telemetry_requires_audio_segment_from_same_generation tests/test_storage.py::test_playback_telemetry_retains_newest_events_per_generation tests/test_storage.py::test_delete_generation_cascades_playback_telemetry -q
 ```
 
 Expected: FAIL because `Storage.record_playback_telemetry` does not exist.
@@ -164,7 +189,7 @@ CREATE TABLE IF NOT EXISTS playback_telemetry_events (
     session_id TEXT NOT NULL,
     event_name TEXT NOT NULL,
     segment_index INTEGER CHECK (segment_index IS NULL OR segment_index >= 0),
-    audio_segment_id INTEGER,
+    audio_segment_id INTEGER REFERENCES audio_segments(id) ON DELETE SET NULL,
     payload_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -186,6 +211,24 @@ Add these methods near `update_generation_progress` in `src/tts_app/storage.py`:
             generation = conn.execute("SELECT id FROM generations WHERE id = ?", (generation_id,)).fetchone()
             if generation is None:
                 raise KeyError(f"generation {generation_id} not found")
+            audio_segment_ids = {
+                int(event["audio_segment_id"])
+                for event in events
+                if event.get("audio_segment_id") is not None
+            }
+            if audio_segment_ids:
+                placeholders = ",".join("?" for _ in audio_segment_ids)
+                rows = conn.execute(
+                    f"""
+                    SELECT id
+                    FROM audio_segments
+                    WHERE generation_id = ? AND id IN ({placeholders})
+                    """,
+                    (generation_id, *audio_segment_ids),
+                ).fetchall()
+                found_ids = {int(row["id"]) for row in rows}
+                if found_ids != audio_segment_ids:
+                    raise KeyError(f"audio segment does not belong to generation {generation_id}")
 
             rows = [
                 (
@@ -246,7 +289,7 @@ Add these methods near `update_generation_progress` in `src/tts_app/storage.py`:
 Run:
 
 ```bash
-.venv/bin/pytest tests/test_storage.py::test_playback_telemetry_round_trip tests/test_storage.py::test_playback_telemetry_requires_existing_generation tests/test_storage.py::test_playback_telemetry_retains_newest_events_per_generation tests/test_storage.py::test_delete_generation_cascades_playback_telemetry -q
+.venv/bin/pytest tests/test_storage.py::test_playback_telemetry_round_trip tests/test_storage.py::test_playback_telemetry_requires_existing_generation tests/test_storage.py::test_playback_telemetry_requires_audio_segment_from_same_generation tests/test_storage.py::test_playback_telemetry_retains_newest_events_per_generation tests/test_storage.py::test_delete_generation_cascades_playback_telemetry -q
 ```
 
 Expected: PASS.
@@ -545,8 +588,8 @@ Create `src/tts_app/static/telemetry.js`:
 const MAX_QUEUE_LENGTH = 100;
 
 function sessionId() {
-  if (crypto?.randomUUID) {
-    return crypto.randomUUID();
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
   }
   return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }

@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS playback_telemetry_events (
     session_id TEXT NOT NULL,
     event_name TEXT NOT NULL,
     segment_index INTEGER,
-    audio_segment_id INTEGER,
+    audio_segment_id INTEGER REFERENCES audio_segments(id) ON DELETE SET NULL,
     payload_json TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_playback_telemetry_session_id
 ON playback_telemetry_events(session_id, id);
 ```
 
-`audio_segment_id` is intentionally nullable. Some events happen before an audio segment is selected, after playback has stopped, or during page lifecycle changes where the current audio segment is unknown.
+`audio_segment_id` is intentionally nullable. Some events happen before an audio segment is selected, after playback has stopped, or during page lifecycle changes where the current audio segment is unknown. When an `audio_segment_id` is provided, storage should validate that it belongs to the same `generation_id` as the telemetry event.
 
 ## Retention
 
@@ -81,7 +81,7 @@ Request body:
         "visibility_state": "hidden",
         "audio_paused": false,
         "audio_ended": false,
-        "current_time": 18.2
+        "audio_current_time": 18.2
       }
     }
   ]
@@ -99,9 +99,9 @@ Response body:
 Validation rules:
 
 - Unknown `generation_id` returns `404`.
-- `session_id` is required and length-limited.
+- `session_id` is required and must be no more than `128` characters.
 - `events` must contain at least one event and no more than `50` events per request.
-- `event_name` is required and length-limited.
+- `event_name` is required and must be no more than `80` characters.
 - `payload` must be a JSON object.
 - Backend storage serializes `payload` to JSON.
 
