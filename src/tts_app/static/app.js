@@ -1,47 +1,36 @@
-const state = {
-  inputMode: "text",
-  generations: [],
-  currentGenerationId: null,
-  currentDetail: null,
-  currentSegmentIndex: 0,
-  eventSource: null,
-  samplePlayback: false,
-  sampleObjectUrl: null,
-  autoplay: false,
-  continuousPlayback: false,
-  wakeLock: null,
-  options: {
-    default_language: "en",
-    default_voice: "",
-    default_speed: 1.0,
-    voices: [],
-    speeds: [{ value: 1.0, label: "1x" }],
-  },
-};
-
-const views = document.querySelectorAll(".view");
-const navButtons = document.querySelectorAll(".nav-button");
-const textModeButton = document.querySelector("#text-mode");
-const urlModeButton = document.querySelector("#url-mode");
-const textInput = document.querySelector("#text-input");
-const urlInput = document.querySelector("#url-input");
-const textLabel = document.querySelector("#text-label");
-const urlLabel = document.querySelector("#url-label");
-const generateForm = document.querySelector("#generate-form");
-const languageSelect = document.querySelector("#language-select");
-const voiceSelect = document.querySelector("#voice-select");
-const voiceStar = document.querySelector("#voice-star");
-const voiceSample = document.querySelector("#voice-sample");
-const speedSelect = document.querySelector("#speed-select");
-const autoplayInput = document.querySelector("#autoplay");
-const historySearch = document.querySelector("#history-search");
-const historyList = document.querySelector("#history-list");
-const backToHistory = document.querySelector("#back-to-history");
-const playPauseButton = document.querySelector("#play-pause");
-const playerStatus = document.querySelector("#player-status");
-const scrollFollow = document.querySelector("#scroll-follow");
-const readingPane = document.querySelector("#reading-pane");
-const audioPlayer = document.querySelector("#audio-player");
+import {
+  audioPlayer,
+  autoplayInput,
+  autoplayRow,
+  backToHistory,
+  draftImagesModeButton,
+  generateForm,
+  generateSubmitButton,
+  historyList,
+  historySearch,
+  imageModeButton,
+  languageSelect,
+  navButtons,
+  optionGrid,
+  playPauseButton,
+  playerStatus,
+  readingPane,
+  scrollFollow,
+  speedSelect,
+  textInput,
+  textLabel,
+  textModeButton,
+  urlInput,
+  urlLabel,
+  urlModeButton,
+  voiceSample,
+  voiceSelect,
+  voiceStar,
+  views,
+} from "./dom.js?v=ocr-generate-fix-1";
+import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=ocr-generate-fix-1";
+import { state } from "./state.js?v=ocr-generate-fix-1";
+import { escapeHtml, formatSpeed, setButtonBusy, withButtonBusy } from "./utils.js?v=ocr-generate-fix-1";
 
 function showView(viewId) {
   views.forEach((view) => {
@@ -58,26 +47,22 @@ function showView(viewId) {
 function setInputMode(mode) {
   state.inputMode = mode;
   const isText = mode === "text";
+  const isUrl = mode === "url";
+  const isImage = mode === "image";
+  const isDraftImages = mode === "draft-images";
   textModeButton.classList.toggle("active", isText);
-  urlModeButton.classList.toggle("active", !isText);
+  urlModeButton.classList.toggle("active", isUrl);
+  imageModeButton.classList.toggle("active", isImage);
+  draftImagesModeButton.classList.toggle("active", isDraftImages);
   textInput.classList.toggle("hidden", !isText);
   textLabel.classList.toggle("hidden", !isText);
-  urlInput.classList.toggle("hidden", isText);
-  urlLabel.classList.toggle("hidden", isText);
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function formatSpeed(value) {
-  const speed = Number(value || 1);
-  return `${Number.isInteger(speed) ? speed.toFixed(0) : speed}x`;
+  urlInput.classList.toggle("hidden", !isUrl);
+  urlLabel.classList.toggle("hidden", !isUrl);
+  syncOcrInputMode(mode);
+  generateSubmitButton.classList.toggle("hidden", isImage || isDraftImages);
+  optionGrid.classList.toggle("hidden", isDraftImages);
+  voiceSample.classList.toggle("hidden", isDraftImages);
+  autoplayRow.classList.toggle("hidden", isDraftImages);
 }
 
 function currentLanguage() {
@@ -101,6 +86,9 @@ function selectedVoiceOption() {
 
 async function submitGeneration(event) {
   event.preventDefault();
+  if (state.inputMode === "image" || state.inputMode === "draft-images") {
+    return;
+  }
   const isText = state.inputMode === "text";
   const endpoint = isText ? "/api/generations/text" : "/api/generations/url";
   state.autoplay = autoplayInput.checked;
@@ -122,6 +110,7 @@ async function submitGeneration(event) {
     return;
   }
 
+  stopPlayback();
   try {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -348,42 +337,46 @@ function renderHistory() {
     .join("");
 }
 
-async function deleteGeneration(generationId) {
+async function deleteGeneration(generationId, button = null) {
   if (!window.confirm("Delete this history entry and cached audio?")) {
     return;
   }
-  try {
-    const response = await fetch(`/api/generations/${generationId}`, { method: "DELETE" });
-    if (!response.ok) {
+  await withButtonBusy(button, "Deleting...", async () => {
+    try {
+      const response = await fetch(`/api/generations/${generationId}`, { method: "DELETE" });
+      if (!response.ok) {
+        playerStatus.textContent = "Unable to delete history entry";
+        return;
+      }
+      if (state.currentGenerationId === generationId) {
+        resetPlaybackState("Deleted generation");
+      }
+      await loadHistory();
+    } catch {
       playerStatus.textContent = "Unable to delete history entry";
-      return;
     }
-    if (state.currentGenerationId === generationId) {
-      resetPlaybackState("Deleted generation");
-    }
-    await loadHistory();
-  } catch {
-    playerStatus.textContent = "Unable to delete history entry";
-  }
+  });
 }
 
 async function openGeneration(generationId, options = {}) {
   const settings = { subscribe: false, autoplay: false, ...options };
-  stopPlayback();
-  state.currentGenerationId = generationId;
-  state.currentSegmentIndex = 0;
-  state.autoplay = Boolean(settings.autoplay);
-  state.continuousPlayback = state.autoplay;
-  showView("playback-view");
-  if (settings.subscribe) {
-    subscribeToGeneration(generationId);
-  } else {
-    closeEventSource();
-  }
-  const loaded = await loadGenerationDetail(generationId);
-  if (loaded && state.autoplay) {
-    playSegment(state.currentSegmentIndex);
-  }
+  await withButtonBusy(settings.button, "Opening...", async () => {
+    stopPlayback();
+    state.currentGenerationId = generationId;
+    state.currentSegmentIndex = 0;
+    state.autoplay = Boolean(settings.autoplay);
+    state.continuousPlayback = state.autoplay;
+    showView("playback-view");
+    if (settings.subscribe) {
+      subscribeToGeneration(generationId);
+    } else {
+      closeEventSource();
+    }
+    const loaded = await loadGenerationDetail(generationId);
+    if (loaded && state.autoplay) {
+      playSegment(state.currentSegmentIndex);
+    }
+  });
 }
 
 async function loadGenerationDetail(generationId) {
@@ -608,6 +601,8 @@ navButtons.forEach((button) => {
 
 textModeButton.addEventListener("click", () => setInputMode("text"));
 urlModeButton.addEventListener("click", () => setInputMode("url"));
+imageModeButton.addEventListener("click", () => setInputMode("image"));
+draftImagesModeButton.addEventListener("click", () => setInputMode("draft-images"));
 generateForm.addEventListener("submit", submitGeneration);
 historySearch.addEventListener("input", renderHistory);
 backToHistory.addEventListener("click", () => {
@@ -624,10 +619,14 @@ historyList.addEventListener("click", (event) => {
   }
   const generationId = Number(historyItem.dataset.generationId);
   if (action?.dataset.action === "delete") {
-    deleteGeneration(generationId);
+    deleteGeneration(Number(action.dataset.generationId), action);
     return;
   }
-  if (action?.dataset.action === "open" || !action) {
+  if (action?.dataset.action === "open") {
+    openGeneration(Number(action.dataset.generationId), { subscribe: false, autoplay: true, button: action });
+    return;
+  }
+  if (!action) {
     if (event.target.closest(".history-details") && !action) {
       return;
     }
@@ -702,5 +701,14 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+initOcr({
+  setInputMode,
+  renderOptions,
+  currentLanguage,
+  stopPlayback,
+  openGeneration,
+});
+registerOcrEvents();
+setInputMode(state.inputMode);
 loadOptions();
 loadHistory();
