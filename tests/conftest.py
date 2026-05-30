@@ -86,12 +86,13 @@ def _patch_starlette_1_testclient_for_tests() -> None:
         }
         request_complete = False
         response_started = False
+        response_complete = anyio.Event()
         raw_kwargs: dict[str, Any] = {"stream": io.BytesIO()}
 
         async def receive() -> dict[str, Any]:
             nonlocal request_complete
             if request_complete:
-                await anyio.sleep(0)
+                await response_complete.wait()
                 return {"type": "http.disconnect"}
             request_complete = True
             body = request.read()
@@ -110,10 +111,12 @@ def _patch_starlette_1_testclient_for_tests() -> None:
                     raw_kwargs["stream"].write(message.get("body", b""))
                 if not message.get("more_body", False):
                     raw_kwargs["stream"].seek(0)
+                    response_complete.set()
             elif message["type"] == "http.response.pathsend":
                 if request.method != "HEAD":
                     raw_kwargs["stream"].write(Path(message["path"]).read_bytes())
                 raw_kwargs["stream"].seek(0)
+                response_complete.set()
 
         try:
             anyio.run(self.app, scope, receive, send)
