@@ -24,6 +24,7 @@ Run tests before claiming work is complete:
 .venv/bin/pytest -q
 npm run check:js
 npm run lint:js
+npm run test:js
 ```
 
 Run locally with the fake provider:
