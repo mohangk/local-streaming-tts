@@ -1,128 +1,23 @@
 from __future__ import annotations
 
-import io
 import json
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import replace
-from pathlib import Path
-from typing import Any
-from urllib.parse import unquote
 
 import anyio
-import httpx
-import starlette
-import starlette.testclient
 from fastapi.testclient import TestClient
 
 from tts_app.api import create_app
 from tts_app.extractor import ExtractedText
 from tts_app.providers.base import AudioChunk, TTSOptions
-
-
-def _patch_starlette_1_testclient_for_tests() -> None:
-    transport_cls = starlette.testclient._TestClientTransport
-    if starlette.__version__ != "1.0.0" or getattr(transport_cls, "_tts_app_test_patched", False):
-        return
-
-    original_handle_request = transport_cls.handle_request
-
-    def handle_request(self, request: httpx.Request) -> httpx.Response:
-        scheme = request.url.scheme
-        if scheme in {"ws", "wss"}:
-            return original_handle_request(self, request)
-
-        netloc = request.url.netloc.decode(encoding="ascii")
-        path = request.url.path
-        raw_path = request.url.raw_path
-        query = request.url.query.decode(encoding="ascii")
-        default_port = {"http": 80, "https": 443}[scheme]
-        if ":" in netloc:
-            host, port_string = netloc.split(":", 1)
-            port = int(port_string)
-        else:
-            host = netloc
-            port = default_port
-
-        headers: list[tuple[bytes, bytes]]
-        if "host" in request.headers:
-            headers = []
-        elif port == default_port:
-            headers = [(b"host", host.encode())]
-        else:
-            headers = [(b"host", f"{host}:{port}".encode())]
-        headers += [(key.lower().encode(), value.encode()) for key, value in request.headers.multi_items()]
-
-        scope: dict[str, Any] = {
-            "type": "http",
-            "http_version": "1.1",
-            "method": request.method,
-            "path": unquote(path),
-            "raw_path": raw_path.split(b"?", 1)[0],
-            "root_path": self.root_path,
-            "scheme": scheme,
-            "query_string": query.encode(),
-            "headers": headers,
-            "client": self.client,
-            "server": [host, port],
-            "extensions": {"http.response.debug": {}, "http.response.pathsend": {}},
-            "state": self.app_state.copy(),
-        }
-        request_complete = False
-        response_started = False
-        raw_kwargs: dict[str, Any] = {"stream": io.BytesIO()}
-
-        async def receive() -> dict[str, Any]:
-            nonlocal request_complete
-            if request_complete:
-                await anyio.sleep(0)
-                return {"type": "http.disconnect"}
-            request_complete = True
-            body = request.read()
-            if isinstance(body, str):
-                body = body.encode("utf-8")
-            return {"type": "http.request", "body": body or b""}
-
-        async def send(message: dict[str, Any]) -> None:
-            nonlocal response_started
-            if message["type"] == "http.response.start":
-                raw_kwargs["status_code"] = message["status"]
-                raw_kwargs["headers"] = [(key.decode(), value.decode()) for key, value in message.get("headers", [])]
-                response_started = True
-            elif message["type"] == "http.response.body":
-                if request.method != "HEAD":
-                    raw_kwargs["stream"].write(message.get("body", b""))
-                if not message.get("more_body", False):
-                    raw_kwargs["stream"].seek(0)
-            elif message["type"] == "http.response.pathsend":
-                if request.method != "HEAD":
-                    raw_kwargs["stream"].write(Path(message["path"]).read_bytes())
-                raw_kwargs["stream"].seek(0)
-
-        try:
-            anyio.run(self.app, scope, receive, send)
-        except BaseException as exc:
-            if self.raise_server_exceptions:
-                raise exc
-
-        if self.raise_server_exceptions:
-            assert response_started, "TestClient did not receive any response."
-        elif not response_started:
-            raw_kwargs = {"status_code": 500, "headers": [], "stream": io.BytesIO()}
-
-        raw_kwargs["stream"] = httpx.ByteStream(raw_kwargs["stream"].read())
-        return httpx.Response(**raw_kwargs, request=request)
-
-    transport_cls.handle_request = handle_request
-    transport_cls._tts_app_test_patched = True
-
-
-_patch_starlette_1_testclient_for_tests()
+from tts_app.providers.options import SelectOption
 
 
 class CapturingTTSProvider:
     name = "capturing"
-    voice_options = ()
+    english_voices = (SelectOption("Capture English", "Capture English", language="en"),)
+    chinese_voices = (SelectOption("Capture Chinese", "Capture Chinese", language="zh"),)
     speed_options = ()
 
     def __init__(self):
@@ -132,7 +27,6 @@ class CapturingTTSProvider:
         self.calls.append((text, options))
         yield AudioChunk(data=b"sample-", mime_type="audio/mpeg", extension="mp3")
         yield AudioChunk(data=b"audio", mime_type="audio/mpeg", extension="mp3")
-
 
 def test_submit_text_starts_generation_and_history_returns_item(test_settings):
     app = create_app(settings=test_settings)
@@ -147,7 +41,6 @@ def test_submit_text_starts_generation_and_history_returns_item(test_settings):
     assert history.status_code == 200
     assert history.json()[0]["id"] == generation_id
     assert history.json()[0]["title"] == "Note"
-
 
 def test_submit_text_logs_generation_request(test_settings, caplog):
     app = create_app(settings=test_settings)
@@ -166,8 +59,7 @@ def test_submit_text_logs_generation_request(test_settings, caplog):
         for record in caplog.records
     )
 
-
-def test_submit_text_defaults_to_configured_qwen_voice(test_settings):
+def test_submit_text_defaults_to_configured_english_voice(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
 
@@ -178,8 +70,7 @@ def test_submit_text_defaults_to_configured_qwen_voice(test_settings):
 
     detail = client.get(f"/api/generations/{generation_id}").json()
 
-    assert detail["generation"]["voice"] == test_settings.qwen_voice
-
+    assert detail["generation"]["voice"] == test_settings.default_english_voice
 
 def test_options_returns_voice_and_speed_choices(test_settings):
     app = create_app(settings=test_settings)
@@ -190,14 +81,13 @@ def test_options_returns_voice_and_speed_choices(test_settings):
     assert response.status_code == 200
     body = response.json()
     assert body["default_language"] == "en"
-    assert body["default_voices"]["en"] == test_settings.qwen_voice
+    assert body["default_voices"]["en"] == test_settings.default_english_voice
     assert body["default_voices"]["zh"] == "Fake Chinese"
-    assert body["default_voice"] == test_settings.qwen_voice
+    assert body["default_voice"] == test_settings.default_english_voice
     fake_english = next(voice for voice in body["voices"] if voice["value"] == "Fake English")
     assert fake_english["language"] == "en"
     assert fake_english["preferred"] is False
     assert {"value": 1.25, "label": "1.25x"} in body["speeds"]
-
 
 def test_options_keeps_duplicate_voice_preferences_language_scoped(test_settings):
     settings = replace(test_settings, provider_name="qwen", qwen_api_key="key")
@@ -212,7 +102,6 @@ def test_options_keeps_duplicate_voice_preferences_language_scoped(test_settings
     assert next(voice for voice in cherry_entries if voice["language"] == "en")["preferred"] is True
     assert next(voice for voice in cherry_entries if voice["language"] == "zh")["preferred"] is False
 
-
 def test_options_lists_multilingual_qwen_voices_for_chinese(test_settings):
     settings = replace(test_settings, provider_name="qwen", qwen_api_key="key")
     client = TestClient(create_app(settings, run_background_inline=True))
@@ -223,7 +112,6 @@ def test_options_lists_multilingual_qwen_voices_for_chinese(test_settings):
     voices = response.json()["voices"]
     assert any(voice["value"] == "Jennifer" and voice["language"] == "zh" for voice in voices)
     assert any(voice["value"] == "Aiden" and voice["language"] == "zh" for voice in voices)
-
 
 def test_voice_preference_endpoint_updates_preference(test_settings):
     settings = replace(test_settings, provider_name="qwen", qwen_api_key="key")
@@ -237,7 +125,6 @@ def test_voice_preference_endpoint_updates_preference(test_settings):
     assert next(
         voice for voice in options["voices"] if voice["value"] == "Jennifer" and voice["language"] == "en"
     )["preferred"] is True
-
 
 def test_voice_sample_returns_audio_without_creating_history(test_settings, monkeypatch):
     provider = CapturingTTSProvider()
@@ -258,7 +145,6 @@ def test_voice_sample_returns_audio_without_creating_history(test_settings, monk
     assert options.language == "English"
     assert options.audio_format == "mp3"
 
-
 def test_voice_sample_uses_chinese_script(test_settings, monkeypatch):
     provider = CapturingTTSProvider()
     monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
@@ -273,7 +159,6 @@ def test_voice_sample_uses_chinese_script(test_settings, monkeypatch):
     assert options.voice == "Cherry"
     assert options.language == "Chinese"
 
-
 def test_submit_text_preserves_explicit_voice(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
@@ -286,7 +171,6 @@ def test_submit_text_preserves_explicit_voice(test_settings):
     detail = client.get(f"/api/generations/{generation_id}").json()
 
     assert detail["generation"]["voice"] == "Custom"
-
 
 def test_submit_text_persists_selected_speed(test_settings):
     app = create_app(settings=test_settings)
@@ -301,7 +185,6 @@ def test_submit_text_persists_selected_speed(test_settings):
 
     assert detail["generation"]["settings"]["speed"] == 1.25
 
-
 def test_submit_text_persists_selected_language(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
@@ -315,7 +198,6 @@ def test_submit_text_persists_selected_language(test_settings):
 
     assert detail["generation"]["settings"]["language"] == "zh"
 
-
 def test_submit_text_rejects_invalid_speed(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
@@ -327,8 +209,7 @@ def test_submit_text_rejects_invalid_speed(test_settings):
 
     assert response.status_code == 422
 
-
-def test_submit_url_defaults_to_configured_qwen_voice(test_settings, monkeypatch):
+def test_submit_url_defaults_to_configured_english_voice(test_settings, monkeypatch):
     async def fake_fetch_and_extract(url: str) -> ExtractedText:
         return ExtractedText(title="Page", text="Hello world from a fetched page.", url=url)
 
@@ -343,8 +224,7 @@ def test_submit_url_defaults_to_configured_qwen_voice(test_settings, monkeypatch
 
     detail = client.get(f"/api/generations/{generation_id}").json()
 
-    assert detail["generation"]["voice"] == test_settings.qwen_voice
-
+    assert detail["generation"]["voice"] == test_settings.default_english_voice
 
 def test_submit_url_preserves_explicit_voice(test_settings, monkeypatch):
     async def fake_fetch_and_extract(url: str) -> ExtractedText:
@@ -363,7 +243,6 @@ def test_submit_url_preserves_explicit_voice(test_settings, monkeypatch):
 
     assert detail["generation"]["voice"] == "Custom"
 
-
 def test_generation_detail_contains_audio_after_background_task(test_settings):
     app = create_app(settings=test_settings, run_background_inline=True)
     client = TestClient(app)
@@ -378,7 +257,6 @@ def test_generation_detail_contains_audio_after_background_task(test_settings):
     assert detail.status_code == 200
     assert detail.json()["generation"]["id"] == generation_id
     assert len(detail.json()["audio_segments"]) >= 1
-
 
 async def test_inline_generation_completes_before_response_body_is_sent(test_settings):
     app = create_app(settings=test_settings, run_background_inline=True)
@@ -419,7 +297,6 @@ async def test_inline_generation_completes_before_response_body_is_sent(test_set
         send,
     )
 
-
 def test_audio_endpoint_serves_cached_segment(test_settings):
     app = create_app(settings=test_settings, run_background_inline=True)
     client = TestClient(app)
@@ -435,7 +312,6 @@ def test_audio_endpoint_serves_cached_segment(test_settings):
     assert audio.status_code == 200
     assert audio.headers["content-type"].startswith("audio/")
     assert b"FAKE-TTS" in audio.content
-
 
 def test_delete_generation_removes_history_and_audio_files(test_settings):
     app = create_app(settings=test_settings, run_background_inline=True)
@@ -454,7 +330,6 @@ def test_delete_generation_removes_history_and_audio_files(test_settings):
     assert all(item["id"] != generation_id for item in client.get("/api/generations").json())
     assert not audio_path.exists()
 
-
 def test_delete_missing_generation_returns_404(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
@@ -462,7 +337,6 @@ def test_delete_missing_generation_returns_404(test_settings):
     response = client.delete("/api/generations/999")
 
     assert response.status_code == 404
-
 
 def test_update_progress_persists_segment_percentage(test_settings):
     app = create_app(settings=replace(test_settings, segment_max_chars=20))
@@ -480,7 +354,6 @@ def test_update_progress_persists_segment_percentage(test_settings):
     assert detail["generation"]["last_segment_index"] == 1
     assert detail["generation"]["progress_percent"] == 50
 
-
 def test_update_progress_completed_sets_100_percent(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
@@ -492,7 +365,6 @@ def test_update_progress_completed_sets_100_percent(test_settings):
 
     assert response.status_code == 200
     assert response.json()["progress_percent"] == 100
-
 
 async def test_generation_events_replays_existing_events(test_settings):
     app = create_app(settings=test_settings, run_background_inline=True)
@@ -541,7 +413,6 @@ async def test_generation_events_replays_existing_events(test_settings):
     text = b"".join(chunks).decode("utf-8")
     assert "data: " in text
     assert '"type": "generation_created"' in text
-
 
 def test_root_serves_frontend(test_settings):
     app = create_app(settings=test_settings)

@@ -81,7 +81,11 @@ class GenerationService:
 
         try:
             for text_segment in detail["text_segments"]:
-                await self._run_segment(generation_id, text_segment, TTSOptions(voice=voice, speed=speed, language=language))
+                await self._run_segment(
+                    generation_id,
+                    text_segment,
+                    TTSOptions(voice=voice, speed=speed, language=language),
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:

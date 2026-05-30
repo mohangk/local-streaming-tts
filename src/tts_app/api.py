@@ -15,9 +15,12 @@ from tts_app.config import Settings, load_settings
 from tts_app.events import EventBroker
 from tts_app.extractor import ExtractionError, fetch_and_extract
 from tts_app.generation import GenerationService
+from tts_app.ocr_providers.registry import get_ocr_provider
 from tts_app.providers.base import TTSOptions
 from tts_app.providers.options import SelectOption
 from tts_app.providers.registry import get_provider
+from tts_app.routes.ocr import create_ocr_router
+from tts_app.routes.shared import schedule_generation
 from tts_app.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -79,6 +82,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     storage.init_schema()
     broker = EventBroker()
     provider = get_provider(active_settings)
+    ocr_provider = get_ocr_provider(active_settings)
     service = GenerationService(
         storage=storage,
         provider=provider,
@@ -93,6 +97,16 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     app.state.storage = storage
     app.state.broker = broker
     app.state.service = service
+    app.state.ocr_provider = ocr_provider
+    app.include_router(
+        create_ocr_router(
+            settings=active_settings,
+            storage=storage,
+            ocr_provider=ocr_provider,
+            service=service,
+            run_background_inline=run_background_inline,
+        )
+    )
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:
@@ -102,8 +116,8 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     async def options():
         preferences = storage.list_voice_preferences()
         provider_voices = tuple(provider.english_voices) + tuple(provider.chinese_voices)
-        default_english_voice = active_settings.qwen_voice
-        default_chinese_voice = _default_voice_for_language(provider.chinese_voices, preferred="Cherry")
+        default_english_voice = active_settings.default_english_voice
+        default_chinese_voice = _default_provider_voice(provider.chinese_voices, active_settings.default_chinese_voice)
         voices = _voice_option_dicts(provider_voices, preferences)
         if not _has_voice(voices, default_english_voice, "en"):
             voices.insert(
@@ -168,7 +182,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     @app.post("/api/generations/text")
     async def submit_text(payload: TextGenerationRequest, background_tasks: BackgroundTasks):
         _validate_language(payload.language)
-        voice = payload.voice or active_settings.qwen_voice
+        voice = payload.voice or active_settings.default_english_voice
         generation_id = await service.create_from_text(
             text=payload.text,
             title=payload.title,
@@ -182,7 +196,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             payload.speed,
             len(payload.text),
         )
-        await _schedule_generation(
+        await schedule_generation(
             service,
             generation_id,
             voice,
@@ -196,7 +210,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     @app.post("/api/generations/url")
     async def submit_url(payload: UrlGenerationRequest, background_tasks: BackgroundTasks):
         _validate_language(payload.language)
-        voice = payload.voice or active_settings.qwen_voice
+        voice = payload.voice or active_settings.default_english_voice
         try:
             extracted = await fetch_and_extract(payload.url)
         except ExtractionError as exc:
@@ -218,7 +232,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             extracted.url,
             len(extracted.text),
         )
-        await _schedule_generation(
+        await schedule_generation(
             service,
             generation_id,
             voice,
@@ -259,10 +273,14 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     async def delete_generation(generation_id: int):
         try:
             storage.get_generation(generation_id)
+            linked_ocr_draft = storage.get_ocr_draft_for_generation(generation_id)
             storage.delete_generation(generation_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="generation not found") from exc
         shutil.rmtree(active_settings.audio_dir / str(generation_id), ignore_errors=True)
+        if linked_ocr_draft is not None:
+            shutil.rmtree(active_settings.image_dir / str(linked_ocr_draft["id"]), ignore_errors=True)
+            storage.force_delete_ocr_draft(linked_ocr_draft["id"])
         logger.info("generation_deleted generation_id=%s", generation_id)
         return Response(status_code=204)
 
@@ -288,21 +306,6 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     return app
 
 
-async def _schedule_generation(
-    service: GenerationService,
-    generation_id: int,
-    voice: str,
-    speed: float,
-    language: str,
-    background_tasks: BackgroundTasks,
-    run_background_inline: bool,
-) -> None:
-    if run_background_inline:
-        await service.run_generation(generation_id, voice, speed, language)
-        return
-    background_tasks.add_task(service.run_generation, generation_id, voice, speed, language)
-
-
 def _validate_language(language: str) -> None:
     if language not in TTS_LANGUAGES:
         raise HTTPException(status_code=400, detail="language must be en or zh")
@@ -312,7 +315,7 @@ def _tts_language(language: str) -> str:
     return TTS_LANGUAGES.get(language, "Auto")
 
 
-def _default_voice_for_language(options: tuple[SelectOption, ...], preferred: str) -> str:
+def _default_provider_voice(options: tuple[SelectOption, ...], preferred: str) -> str:
     values = [str(option.value) for option in options]
     if preferred in values:
         return preferred
