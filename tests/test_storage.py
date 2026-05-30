@@ -61,6 +61,55 @@ def test_audio_segment_round_trip(test_settings):
     assert detail["audio_segments"][0]["file_path"].endswith("segment-0001.mp3")
     assert detail["audio_segments"][0]["status"] == "completed"
 
+
+def test_continuous_audio_artifact_round_trip(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+
+    storage.upsert_continuous_audio_artifact(
+        generation_id,
+        file_path=f"audio/{generation_id}/full.mp3",
+        mime_type="audio/mpeg",
+        status="building",
+        appended_through_segment_index=0,
+        byte_size=123,
+        error=None,
+    )
+
+    artifact = storage.get_continuous_audio_artifact(generation_id)
+
+    assert artifact == {
+        "generation_id": generation_id,
+        "file_path": f"audio/{generation_id}/full.mp3",
+        "mime_type": "audio/mpeg",
+        "status": "building",
+        "appended_through_segment_index": 0,
+        "byte_size": 123,
+        "error": None,
+    }
+
+
+def test_delete_generation_cascades_continuous_audio_artifact(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+    storage.upsert_continuous_audio_artifact(
+        generation_id,
+        file_path=f"audio/{generation_id}/full.mp3",
+        mime_type="audio/mpeg",
+        status="completed",
+        appended_through_segment_index=0,
+        byte_size=123,
+        error=None,
+    )
+
+    storage.delete_generation(generation_id)
+
+    with pytest.raises(KeyError, match=f"continuous audio artifact for generation {generation_id} not found"):
+        storage.get_continuous_audio_artifact(generation_id)
+
+
 def test_generation_progress_round_trip(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()

@@ -182,6 +182,18 @@ class Storage:
                     UNIQUE(generation_id, segment_index)
                 );
 
+                CREATE TABLE IF NOT EXISTS continuous_audio_artifacts (
+                    generation_id INTEGER PRIMARY KEY REFERENCES generations(id) ON DELETE CASCADE,
+                    file_path TEXT NOT NULL,
+                    mime_type TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('building', 'completed', 'failed')),
+                    appended_through_segment_index INTEGER NOT NULL DEFAULT -1 CHECK (appended_through_segment_index >= -1),
+                    byte_size INTEGER NOT NULL DEFAULT 0 CHECK (byte_size >= 0),
+                    error TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE TABLE IF NOT EXISTS playback_telemetry_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     generation_id INTEGER NOT NULL REFERENCES generations(id) ON DELETE CASCADE,
@@ -689,6 +701,51 @@ class Storage:
                 (generation_id, text_segment_id, segment_index, file_path, mime_type, duration_ms, byte_size, status, error),
             )
             return int(cur.lastrowid)
+
+    def upsert_continuous_audio_artifact(
+        self,
+        generation_id: int,
+        file_path: str,
+        mime_type: str,
+        status: str,
+        appended_through_segment_index: int,
+        byte_size: int,
+        error: str | None,
+    ) -> None:
+        with self.connection() as conn:
+            generation = conn.execute("SELECT id FROM generations WHERE id = ?", (generation_id,)).fetchone()
+            if generation is None:
+                raise KeyError(f"generation {generation_id} not found")
+            conn.execute(
+                """
+                INSERT INTO continuous_audio_artifacts
+                    (generation_id, file_path, mime_type, status, appended_through_segment_index, byte_size, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(generation_id) DO UPDATE SET
+                    file_path = excluded.file_path,
+                    mime_type = excluded.mime_type,
+                    status = excluded.status,
+                    appended_through_segment_index = excluded.appended_through_segment_index,
+                    byte_size = excluded.byte_size,
+                    error = excluded.error,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (generation_id, file_path, mime_type, status, appended_through_segment_index, byte_size, error),
+            )
+
+    def get_continuous_audio_artifact(self, generation_id: int) -> dict[str, Any]:
+        with self.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT generation_id, file_path, mime_type, status, appended_through_segment_index, byte_size, error
+                FROM continuous_audio_artifacts
+                WHERE generation_id = ?
+                """,
+                (generation_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"continuous audio artifact for generation {generation_id} not found")
+        return dict(row)
 
     def list_generations(self) -> list[dict[str, Any]]:
         with self.connection() as conn:
