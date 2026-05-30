@@ -7,7 +7,7 @@ from pathlib import Path
 
 STATIC_DIR = Path("src/tts_app/static")
 PYPROJECT = Path("pyproject.toml")
-JS_FILES = ("app.js", "ocr.js", "state.js", "dom.js", "utils.js")
+JS_FILES = ("app.js", "ocr.js", "playback.js", "state.js", "dom.js", "utils.js")
 
 
 def frontend_js() -> str:
@@ -38,6 +38,33 @@ def test_frontend_versions_split_javascript_module_imports():
         js = (STATIC_DIR / filename).read_text(encoding="utf-8")
         for match in local_import.finditer(js):
             assert match.group(2), f"{filename} imports {match.group(1)} without a cache-busting version"
+
+
+def test_frontend_imports_playback_helpers():
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    playback_js = (STATIC_DIR / "playback.js").read_text(encoding="utf-8")
+
+    assert 'from "./playback.js?v=' in app_js
+    assert "chooseResumeSegmentIndex" in app_js
+    assert "buildProgressPayload" in app_js
+    assert "endedPlaybackAction" in app_js
+    assert "export function chooseResumeSegmentIndex" in playback_js
+    assert "export function buildProgressPayload" in playback_js
+    assert "export function endedPlaybackAction" in playback_js
+
+
+def test_frontend_static_asset_version_bumped_for_playback_module():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    ocr_js = (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
+
+    assert 'href="/static/styles.css?v=playback-vitest-1"' in html
+    assert 'src="/static/app.js?v=playback-vitest-1"' in html
+    assert "?v=playback-vitest-1" in app_js
+    assert "?v=playback-vitest-1" in ocr_js
+    assert "ocr-generate-fix-1" not in html
+    assert "ocr-generate-fix-1" not in app_js
+    assert "ocr-generate-fix-1" not in ocr_js
 
 
 def test_frontend_javascript_uses_history_and_event_endpoints():
@@ -372,9 +399,11 @@ def test_frontend_voice_sample_revokes_object_urls():
 def test_frontend_ended_handler_skips_generation_progress_for_samples():
     js = frontend_js()
     handler = js.split('audioPlayer.addEventListener("ended"', 1)[1].split("document.addEventListener", 1)[0]
-    sample_branch = handler.split("const nextIndex", 1)[0]
+    sample_branch = handler.split('if (action.type === "play-next")', 1)[0]
 
-    assert "state.samplePlayback" in sample_branch
+    assert "endedPlaybackAction({" in handler
+    assert "samplePlayback: state.samplePlayback" in handler
+    assert 'action.type === "clear-sample"' in sample_branch
     assert "clearSamplePlayback()" in sample_branch
     assert "return" in sample_branch
     assert "saveProgress" not in sample_branch
@@ -384,8 +413,9 @@ def test_frontend_javascript_ended_handler_respects_continuous_playback():
     js = frontend_js()
     handler = js.split('audioPlayer.addEventListener("ended"', 1)[1].split("loadHistory();", 1)[0]
 
-    assert "state.continuousPlayback" in handler
-    assert "playSegment(nextIndex)" in handler
+    assert "continuousPlayback: state.continuousPlayback" in handler
+    assert 'action.type === "play-next"' in handler
+    assert "playSegment(action.segmentIndex)" in handler
 
 
 def test_frontend_user_started_history_playback_continues_between_segments():

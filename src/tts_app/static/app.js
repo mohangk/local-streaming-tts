@@ -27,10 +27,15 @@ import {
   voiceSelect,
   voiceStar,
   views,
-} from "./dom.js?v=ocr-generate-fix-1";
-import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=ocr-generate-fix-1";
-import { state } from "./state.js?v=ocr-generate-fix-1";
-import { escapeHtml, formatSpeed, withButtonBusy } from "./utils.js?v=ocr-generate-fix-1";
+} from "./dom.js?v=playback-vitest-1";
+import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=playback-vitest-1";
+import {
+  buildProgressPayload,
+  chooseResumeSegmentIndex,
+  endedPlaybackAction,
+} from "./playback.js?v=playback-vitest-1";
+import { state } from "./state.js?v=playback-vitest-1";
+import { escapeHtml, formatSpeed, withButtonBusy } from "./utils.js?v=playback-vitest-1";
 
 function showView(viewId) {
   views.forEach((view) => {
@@ -393,10 +398,10 @@ async function loadGenerationDetail(generationId) {
       return null;
     }
     state.currentDetail = detail;
-    if (detail.text_segments.length > 0) {
-      const savedIndex = Number(detail.generation.last_segment_index || 0);
-      state.currentSegmentIndex = Math.min(Math.max(savedIndex, 0), detail.text_segments.length - 1);
-    }
+    state.currentSegmentIndex = chooseResumeSegmentIndex({
+      lastSegmentIndex: detail.generation.last_segment_index,
+      totalSegments: detail.text_segments.length,
+    });
     renderPlayback();
     return state.currentGenerationId === generationId;
   } catch {
@@ -553,7 +558,7 @@ async function saveProgress(segmentIndex, options = {}) {
     const response = await fetch(`/api/generations/${state.currentGenerationId}/progress`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ segment_index: segmentIndex, completed: Boolean(options.completed) }),
+      body: JSON.stringify(buildProgressPayload(segmentIndex, options)),
     });
     if (response.ok && state.currentDetail) {
       const progress = await response.json();
@@ -675,7 +680,14 @@ audioPlayer.addEventListener("pause", () => {
 });
 
 audioPlayer.addEventListener("ended", () => {
-  if (state.samplePlayback) {
+  const action = endedPlaybackAction({
+    samplePlayback: state.samplePlayback,
+    continuousPlayback: state.continuousPlayback,
+    currentSegmentIndex: state.currentSegmentIndex,
+    totalSegments: state.currentDetail?.text_segments.length || 0,
+  });
+
+  if (action.type === "clear-sample") {
     audioPlayer.pause();
     audioPlayer.removeAttribute("src");
     audioPlayer.load();
@@ -683,14 +695,16 @@ audioPlayer.addEventListener("ended", () => {
     releaseWakeLock();
     return;
   }
-  const nextIndex = state.currentSegmentIndex + 1;
-  if (state.continuousPlayback && state.currentDetail && nextIndex < state.currentDetail.text_segments.length) {
-    playSegment(nextIndex);
+
+  if (action.type === "play-next") {
+    playSegment(action.segmentIndex);
     return;
   }
-  if (state.currentDetail && state.currentSegmentIndex >= state.currentDetail.text_segments.length - 1) {
-    saveProgress(state.currentSegmentIndex, { completed: true });
+
+  if (action.type === "complete") {
+    saveProgress(action.segmentIndex, { completed: true });
   }
+
   state.continuousPlayback = false;
   releaseWakeLock();
 });
