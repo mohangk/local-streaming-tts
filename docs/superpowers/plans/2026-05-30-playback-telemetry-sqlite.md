@@ -827,11 +827,59 @@ const playbackTelemetry = createPlaybackTelemetry();
 Add near playback helpers:
 
 ```js
+function telemetryPlatform() {
+  const platform = (navigator.platform || "").toLowerCase();
+  const userAgent = (navigator.userAgent || "").toLowerCase();
+  if (userAgent.includes("android")) {
+    return "android";
+  }
+  if (/iphone|ipad|ipod/.test(userAgent)) {
+    return "ios";
+  }
+  if (platform.includes("mac")) {
+    return "macos";
+  }
+  if (platform.includes("win")) {
+    return "windows";
+  }
+  if (platform.includes("linux")) {
+    return "linux";
+  }
+  return "unknown";
+}
+
+function telemetryUserAgent() {
+  const userAgent = (navigator.userAgent || "").toLowerCase();
+  if (userAgent.includes("firefox")) {
+    return "firefox";
+  }
+  if (userAgent.includes("edg/")) {
+    return "edge";
+  }
+  if (userAgent.includes("chrome") || userAgent.includes("crios")) {
+    return "chrome";
+  }
+  if (userAgent.includes("safari")) {
+    return "safari";
+  }
+  return "unknown";
+}
+
 function recordPlaybackTelemetry(eventName, payload = {}) {
   if (playbackTelemetry.record(state, audioPlayer, eventName, payload)) {
     playbackTelemetry.flush();
   }
 }
+```
+
+Use `buildProgressPayload` from the playback helper import added during the Vitest refactor:
+
+```js
+import {
+  buildProgressPayload,
+  chooseResumeSegmentIndex,
+  endedPlaybackAction,
+} from "./playback.js?v=playback-telemetry-1";
 ```
 
 - [ ] **Step 5: Record generation and segment events**

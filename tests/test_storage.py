@@ -165,7 +165,7 @@ def test_playback_telemetry_requires_audio_segment_from_same_generation(test_set
         None,
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=f"audio segment does not belong to generation {first_generation_id}"):
         storage.record_playback_telemetry(
             first_generation_id,
             "session-1710000000000-abc123",
@@ -179,7 +179,7 @@ def test_playback_telemetry_requires_segment_from_same_generation(test_settings)
     generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
     storage.create_text_segments(generation_id, ["A"])
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="playback telemetry segment index does not belong to generation"):
         storage.record_playback_telemetry(
             generation_id,
             "session-1710000000000-abc123",
@@ -204,7 +204,7 @@ def test_playback_telemetry_requires_audio_segment_index_match(test_settings):
         None,
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="playback telemetry audio segment does not match segment index"):
         storage.record_playback_telemetry(
             generation_id,
             "session-1710000000000-abc123",
@@ -271,7 +271,7 @@ def test_playback_telemetry_rejects_unknown_event_names(test_settings):
     storage.init_schema()
     generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="unsupported playback telemetry event"):
         storage.record_playback_telemetry(
             generation_id,
             "session-1710000000000-abc123",
@@ -284,7 +284,7 @@ def test_playback_telemetry_rejects_free_form_session_id(test_settings):
     storage.init_schema()
     generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="unsupported playback telemetry session id"):
         storage.record_playback_telemetry(
             generation_id,
             "Secret article text",
