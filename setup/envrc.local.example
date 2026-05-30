@@ -4,8 +4,15 @@
 
 TTS_PROVIDER=qwen
 DASHSCOPE_API_KEY=
-QWEN_MODEL=qwen3-tts-flash-realtime
+TTS_MODEL=qwen3-tts-flash-realtime
+OCR_PROVIDER=qwen
+OCR_MODEL=qwen-vl-ocr
 QWEN_REALTIME_URL=wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime
-QWEN_VOICE=Jennifer
+TTS_DEFAULT_ENGLISH_VOICE=Jennifer
+TTS_DEFAULT_CHINESE_VOICE=Cherry
 TTS_DATA_DIR=/home/mohan/tts/data
 TTS_SEGMENT_MAX_CHARS=550
+
+# TODO: update existing /home/mohan/tts/.envrc.local files to use
+# TTS_MODEL, OCR_MODEL, and OCR_PROVIDER=qwen, and remove old
+# QWEN_MODEL, QWEN_OCR_MODEL, and QWEN_VOICE entries.
