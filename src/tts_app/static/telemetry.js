@@ -15,6 +15,9 @@ export function playbackTelemetryContext(state, audioPlayer) {
   if (!state.currentGenerationId || state.samplePlayback) {
     return null;
   }
+  if (state.currentDetail?.generation?.id !== state.currentGenerationId) {
+    return null;
+  }
   const audioSegment = audioSegmentForState(state);
   return {
     generationId: state.currentGenerationId,
@@ -39,6 +42,30 @@ export function createPlaybackTelemetry(options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
   const telemetrySessionId = options.sessionId || sessionId();
   const queue = [];
+  let flushPromise = null;
+
+  function dequeueBatch() {
+    const first = queue[0];
+    if (!first) {
+      return null;
+    }
+    const generationId = first.generationId;
+    const events = queue.filter((item) => item.generationId === generationId).slice(0, 50);
+    const eventSet = new Set(events);
+    for (let index = queue.length - 1; index >= 0; index -= 1) {
+      if (eventSet.has(queue[index])) {
+        queue.splice(index, 1);
+      }
+    }
+    return { generationId, events };
+  }
+
+  function requeueBatch(events) {
+    queue.unshift(...events);
+    if (queue.length > MAX_QUEUE_LENGTH) {
+      queue.splice(MAX_QUEUE_LENGTH);
+    }
+  }
 
   function record(state, audioPlayer, eventName, payload = {}) {
     const context = playbackTelemetryContext(state, audioPlayer);
@@ -60,34 +87,46 @@ export function createPlaybackTelemetry(options = {}) {
     return true;
   }
 
-  async function flush() {
-    const first = queue[0];
-    if (!first) {
-      return true;
-    }
-    const generationId = first.generationId;
-    const events = queue.filter((item) => item.generationId === generationId).slice(0, 50);
-    try {
-      const response = await fetchImpl(`/api/generations/${generationId}/playback-telemetry`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: telemetrySessionId,
-          events: events.map((item) => item.event),
-        }),
-      });
-      if (!response.ok) {
+  async function flushQueue() {
+    let allDelivered = true;
+    let batch = dequeueBatch();
+    while (batch) {
+      const { generationId, events } = batch;
+      let response;
+      try {
+        response = await fetchImpl(`/api/generations/${generationId}/playback-telemetry`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: telemetrySessionId,
+            events: events.map((item) => item.event),
+          }),
+        });
+      } catch {
+        requeueBatch(events);
         return false;
       }
-      for (const item of events) {
-        const index = queue.indexOf(item);
-        if (index >= 0) {
-          queue.splice(index, 1);
+      if (!response.ok) {
+        if (!response.status || response.status >= 500) {
+          requeueBatch(events);
+          return false;
         }
+        allDelivered = false;
       }
-      return true;
-    } catch {
-      return false;
+      batch = dequeueBatch();
+    }
+    return allDelivered;
+  }
+
+  async function flush() {
+    if (flushPromise) {
+      return flushPromise;
+    }
+    flushPromise = flushQueue();
+    try {
+      return await flushPromise;
+    } finally {
+      flushPromise = null;
     }
   }
 

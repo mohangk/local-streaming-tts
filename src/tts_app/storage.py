@@ -566,7 +566,7 @@ class Storage:
                 ).fetchall()
                 found_ids = {int(row["id"]) for row in rows}
                 if found_ids != audio_segment_ids:
-                    raise KeyError(f"audio segment does not belong to generation {generation_id}")
+                    raise ValueError(f"audio segment does not belong to generation {generation_id}")
                 audio_segment_indexes = {int(row["id"]): int(row["segment_index"]) for row in rows}
 
             for event in normalized_events:

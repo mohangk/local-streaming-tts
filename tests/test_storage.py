@@ -165,7 +165,7 @@ def test_playback_telemetry_requires_audio_segment_from_same_generation(test_set
         None,
     )
 
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError):
         storage.record_playback_telemetry(
             first_generation_id,
             "session-1710000000000-abc123",

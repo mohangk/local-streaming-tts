@@ -417,6 +417,7 @@ async function openGeneration(generationId, options = {}) {
   const settings = { subscribe: false, autoplay: false, ...options };
   await withButtonBusy(settings.button, "Opening...", async () => {
     stopPlayback();
+    state.currentDetail = null;
     state.currentGenerationId = generationId;
     state.currentSegmentIndex = 0;
     state.autoplay = Boolean(settings.autoplay);
@@ -612,14 +613,20 @@ async function saveProgress(segmentIndex, options = {}) {
   if (!state.currentGenerationId) {
     return;
   }
+  const generationId = state.currentGenerationId;
+  const payload = buildProgressPayload(segmentIndex, options);
   try {
-    recordPlaybackTelemetry("progress_save_attempted", buildProgressPayload(segmentIndex, options));
-    const response = await fetch(`/api/generations/${state.currentGenerationId}/progress`, {
+    recordPlaybackTelemetry("progress_save_attempted", payload);
+    const response = await fetch(`/api/generations/${generationId}/progress`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildProgressPayload(segmentIndex, options)),
+      body: JSON.stringify(payload),
     });
-    if (response.ok && state.currentDetail) {
+    if (
+      response.ok &&
+      state.currentGenerationId === generationId &&
+      state.currentDetail?.generation?.id === generationId
+    ) {
       const progress = await response.json();
       state.currentDetail.generation.last_segment_index = progress.last_segment_index;
       state.currentDetail.generation.progress_percent = progress.progress_percent;

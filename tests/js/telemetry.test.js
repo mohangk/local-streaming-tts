@@ -9,6 +9,7 @@ function generationState(overrides = {}) {
     currentGenerationId: 7,
     currentSegmentIndex: 2,
     currentDetail: {
+      generation: { id: 7 },
       audio_segments: [{ id: 42, segment_index: 2 }],
     },
     samplePlayback: false,
@@ -56,6 +57,15 @@ describe("playbackTelemetryContext", () => {
   it("returns null for voice sample playback", () => {
     expect(playbackTelemetryContext(generationState({ samplePlayback: true }), audio())).toBeNull();
   });
+
+  it("returns null when generation detail does not match the active generation", () => {
+    expect(
+      playbackTelemetryContext(
+        generationState({ currentGenerationId: 8, currentDetail: { generation: { id: 7 }, audio_segments: [] } }),
+        audio(),
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("createPlaybackTelemetry", () => {
@@ -94,5 +104,67 @@ describe("createPlaybackTelemetry", () => {
 
     telemetry.record(generationState(), audio(), "audio_waiting");
     await expect(telemetry.flush()).resolves.toBe(false);
+  });
+
+  it("serializes overlapping flushes without duplicating queued events", async () => {
+    let resolveFetch;
+    const firstResponse = new Promise((resolve) => {
+      resolveFetch = () => resolve({ ok: true });
+    });
+    const fetchImpl = vi.fn(() => firstResponse);
+    const telemetry = createPlaybackTelemetry({ fetchImpl, sessionId: "session-1710000000000-abc123" });
+
+    telemetry.record(generationState(), audio(), "audio_ended");
+    const firstFlush = telemetry.flush();
+    telemetry.record(generationState(), audio(), "playback_ended_action", { type: "complete" });
+    const secondFlush = telemetry.flush();
+
+    resolveFetch();
+    await firstFlush;
+    await secondFlush;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body).events.map((event) => event.event_name)).toEqual([
+      "audio_ended",
+    ]);
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body).events.map((event) => event.event_name)).toEqual([
+      "playback_ended_action",
+    ]);
+  });
+
+  it("drops invalid client batches so later telemetry can flush", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 422 }));
+    const telemetry = createPlaybackTelemetry({ fetchImpl, sessionId: "session-1710000000000-abc123" });
+
+    telemetry.record(generationState(), audio(), "audio_play");
+    await expect(telemetry.flush()).resolves.toBe(false);
+    fetchImpl.mockResolvedValueOnce({ ok: true });
+    telemetry.record(generationState(), audio(), "audio_pause");
+    await expect(telemetry.flush()).resolves.toBe(true);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body).events.map((event) => event.event_name)).toEqual([
+      "audio_pause",
+    ]);
+  });
+
+  it("continues draining events queued behind a dropped invalid batch", async () => {
+    const fetchImpl = vi.fn(async (url) => ({
+      ok: !url.includes("/7/"),
+      status: url.includes("/7/") ? 422 : 200,
+    }));
+    const telemetry = createPlaybackTelemetry({ fetchImpl, sessionId: "session-1710000000000-abc123" });
+
+    telemetry.record(generationState(), audio(), "audio_play");
+    telemetry.record(
+      generationState({ currentGenerationId: 8, currentDetail: { generation: { id: 8 }, audio_segments: [] } }),
+      audio(),
+      "audio_pause",
+    );
+    await expect(telemetry.flush()).resolves.toBe(false);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[0][0]).toBe("/api/generations/7/playback-telemetry");
+    expect(fetchImpl.mock.calls[1][0]).toBe("/api/generations/8/playback-telemetry");
   });
 });
