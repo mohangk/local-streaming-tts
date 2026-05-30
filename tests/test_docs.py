@@ -6,6 +6,7 @@ from pathlib import Path
 def test_handoff_docs_exist_and_cover_local_operations():
     readme = Path("README.md").read_text(encoding="utf-8")
     agents = Path("AGENTS.md").read_text(encoding="utf-8")
+    architecture = Path("docs/architecture.md").read_text(encoding="utf-8")
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert "# Readvox" in readme
@@ -33,6 +34,22 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "data/images/" in readme
     assert "Voice samples" in readme
     assert "do not create History entries" in readme
+    assert "# Readvox Architecture" in architecture
+    assert "provider interfaces" in architecture
+    assert "SQLite" in architecture
+    assert "filesystem" in architecture
+    assert "OCR drafts are separate from generations" in architecture
+    assert "Linked OCR drafts should disappear from Generate > Image" in architecture
+    assert "visible Chinese text and visible pinyin" in architecture
+    assert "Future modularization should split `app.js` further" in architecture
+    assert "history.js" in architecture
+    assert "playback.js" in architecture
+    assert "generation-form.js" in architecture
+    assert "voice-controls.js" in architecture
+    assert "api-client.js" in architecture
+    assert "forward migrations" in architecture
+    assert "fake implementation" in architecture
+    assert "docs/architecture.md" in agents
     assert "Storage" in agents
     assert "Private Proxy" in agents
     assert "setup/tts.service" in agents
@@ -40,7 +57,6 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "Pricing Notes" in agents
     assert "src/tts_app/ocr_providers/" in agents
     assert "stored images" in agents
-    assert "visible Chinese text and visible pinyin" in agents
     assert "Do not commit secrets, API keys, stored images" in agents
 
 

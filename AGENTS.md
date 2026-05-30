@@ -4,6 +4,8 @@
 
 This repo contains Readvox, a local, mobile-first FastAPI app for generating streamed text-to-speech audio from pasted text or simple HTML URLs. It is intended to run as a localhost HTTP service and optionally be exposed to trusted devices through a private HTTPS proxy.
 
+For durable architecture, module boundaries, storage semantics, frontend modularization direction, and future feature patterns, read `docs/architecture.md`.
+
 ## Layout
 
 - `src/tts_app/api.py`: FastAPI routes and app factory.
@@ -57,11 +59,9 @@ The default data directory is `data/`. SQLite stores generations, text segments,
 
 Images are stored under `data/images/<ocr_draft_id>/` by default, with one child directory per source image. Do not remove user data, stored images, or generated audio unless the user explicitly asks or the app deletion flow is being exercised. Deleting an unlinked OCR draft through the app removes its stored image directory. Deleting an image generation through the app removes the SQLite row, cached audio directory, linked OCR draft, and stored source image directories.
 
-## Provider Notes
+## Secrets And Providers
 
-The fake provider is deterministic and should be used for tests and local UI checks. Qwen credentials come from `DASHSCOPE_API_KEY` or `QWEN_API_KEY`. OCR provider selection lives in `src/tts_app/ocr_providers/registry.py`, with `src/tts_app/ocr_providers/fake.py` for deterministic tests and `src/tts_app/ocr_providers/qwen.py` for Qwen OCR. Do not commit secrets, API keys, stored images, generated smoke-test audio, generated audio, or local data files.
-
-For Chinese OCR, preserve only visible Chinese text and visible pinyin. Do not generate missing pinyin, transliterate Chinese characters into pinyin, or infer text that is not visible in the image.
+Do not commit secrets, API keys, stored images, generated smoke-test audio, generated audio, or local data files. Use the fake providers for tests and local UI checks unless a task explicitly requires Qwen.
 
 ## Pricing Notes
 
@@ -69,9 +69,6 @@ The app currently uses `qwen3-tts-flash-realtime` by default. Alibaba Cloud Mode
 
 ## Development Rules
 
-- Prefer focused tests for storage/API/frontend behavior before implementation.
-- Keep frontend JavaScript lightweight and mobile-first.
-- Keep TTS provider behavior behind the provider interface.
+- Follow `docs/architecture.md` for module boundaries, schema migration style, provider boundaries, frontend modularization, and future feature sequencing.
 - Treat the same text or URL with a different voice or speed as a separate generation.
-- For schema changes, prefer one-time forward migrations that copy existing data into the new shape, then remove old tables or columns. Do not leave long-lived backward-compatible runtime branches after the migration. Destructive resets are only acceptable when the user explicitly says incompatible data can be discarded.
 - Preserve unrelated untracked files such as `.codex` or smoke-test artifacts unless the user asks otherwise.
