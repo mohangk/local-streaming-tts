@@ -56,6 +56,9 @@ function openGeneration(generationId, options = {}) {
 export function syncOcrInputMode(mode) {
   const isImage = mode === "image";
   const isDraftImages = mode === "draft-images";
+  if (isImage && state.currentOcrDraft?.linked_generation_id) {
+    clearActiveOcrDraftState();
+  }
   imageUploadInput.classList.add("hidden");
   imageActions.classList.toggle("hidden", !isImage);
   imageSelectionList.classList.toggle("hidden", !isImage || state.pendingOcrImages.length === 0);
@@ -85,16 +88,14 @@ function showOcrDraft(draft) {
   updateGenerateOcrAudioState();
 }
 
-function markCurrentOcrDraftLinked(generationId) {
-  if (!state.currentOcrDraft) {
-    return;
-  }
-  state.currentOcrDraft.linked_generation_id = generationId;
+function clearActiveOcrDraftState() {
+  state.currentOcrDraftId = null;
+  state.currentOcrDraft = null;
+  ocrReviewList.innerHTML = "";
+  ocrReviewList.classList.add("hidden");
   generateOcrAudioButton.classList.add("hidden");
   generateOcrAudioButton.disabled = true;
-  playerStatus.textContent = "Audio already generated";
-  renderOcrReview();
-  renderOcrDrafts();
+  clearOcrDraftButton.classList.add("hidden");
 }
 
 function renderOcrReview() {
@@ -519,11 +520,7 @@ async function deleteOcrDraft(draftId, button = null) {
         return;
       }
       if (state.currentOcrDraftId === draftId) {
-        state.currentOcrDraftId = null;
-        state.currentOcrDraft = null;
-        ocrReviewList.innerHTML = "";
-        ocrReviewList.classList.add("hidden");
-        generateOcrAudioButton.classList.add("hidden");
+        clearActiveOcrDraftState();
       }
       await loadOcrDrafts();
       playerStatus.textContent = "Deleted image draft";
@@ -548,9 +545,7 @@ async function clearActiveOcrDraft() {
         playerStatus.textContent = "Unable to clear images";
         return;
       }
-      state.currentOcrDraftId = null;
-      state.currentOcrDraft = null;
-      ocrReviewList.innerHTML = "";
+      clearActiveOcrDraftState();
       setInputMode("image");
       await loadOcrDrafts();
       playerStatus.textContent = "Cleared images";
@@ -596,13 +591,14 @@ async function generateOcrAudio(button = null) {
         return;
       }
       const result = await response.json();
-      markCurrentOcrDraftLinked(result.generation_id);
+      clearActiveOcrDraftState();
       await loadOcrDrafts();
       await openGeneration(result.generation_id, { subscribe: true, autoplay: state.autoplay });
     } catch {
       playerStatus.textContent = "Image audio generation failed";
     }
   });
+  updateGenerateOcrAudioState();
 }
 
 async function retryOcrDraftImage(draftId, imageId, button = null) {

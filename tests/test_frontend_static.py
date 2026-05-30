@@ -251,19 +251,32 @@ def test_frontend_reports_successful_ocr_deletes_without_reading_204_body():
     assert "Removed image" in image_deleter
 
 
-def test_frontend_marks_ocr_draft_linked_after_generation_success():
+def test_frontend_clears_active_ocr_draft_after_generation_success():
     js = frontend_js()
-    generator = js.split("async function generateOcrAudio", 1)[1].split("async function deleteOcrDraftImage", 1)[0]
+    generator = js.split("async function generateOcrAudio", 1)[1].split("async function retryOcrDraftImage", 1)[0]
 
     assert "method: \"PUT\"" not in generator
     assert "combined_text: combinedText" in generator
-    assert "markCurrentOcrDraftLinked(result.generation_id)" in generator
-    assert "function markCurrentOcrDraftLinked" in js
-    linked_helper = js.split("function markCurrentOcrDraftLinked", 1)[1].split("function renderOcrReview", 1)[0]
-    assert "state.currentOcrDraft.linked_generation_id = generationId" in js
-    assert "generateOcrAudioButton.classList.add(\"hidden\")" in js
-    assert "renderOcrReview()" in linked_helper
-    assert "Audio already generated" in js
+    assert "clearActiveOcrDraftState()" in generator
+    assert generator.index("clearActiveOcrDraftState()") < generator.index("await openGeneration(result.generation_id")
+    assert generator.rindex("updateGenerateOcrAudioState()") > generator.rindex("await withButtonBusy")
+    assert "function clearActiveOcrDraftState()" in js
+    reset_helper = js.split("function clearActiveOcrDraftState()", 1)[1].split("function renderOcrReview", 1)[0]
+    assert "state.currentOcrDraftId = null" in reset_helper
+    assert "state.currentOcrDraft = null" in reset_helper
+    assert "ocrReviewList.innerHTML = \"\"" in reset_helper
+    assert "generateOcrAudioButton.classList.add(\"hidden\")" in reset_helper
+    assert "generateOcrAudioButton.disabled = true" in reset_helper
+    assert "clearOcrDraftButton.classList.add(\"hidden\")" in reset_helper
+
+
+def test_frontend_image_mode_clears_linked_current_ocr_draft():
+    js = frontend_js()
+    mode_sync = js.split("export function syncOcrInputMode(mode)", 1)[1].split("function showOcrDraft", 1)[0]
+
+    assert "mode === \"image\"" in mode_sync
+    assert "state.currentOcrDraft?.linked_generation_id" in mode_sync
+    assert "clearActiveOcrDraftState()" in mode_sync
 
 
 def test_frontend_shows_busy_feedback_while_generating_ocr_audio():
