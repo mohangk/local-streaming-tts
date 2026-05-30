@@ -525,6 +525,53 @@ def test_record_playback_telemetry_rejects_free_form_session_id(test_settings):
     assert response.status_code == 422
 
 
+def test_record_playback_telemetry_rejects_unknown_segment_index(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "One.", "fake", "Test", {})
+    storage.create_text_segments(generation_id, ["One."])
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        f"/api/generations/{generation_id}/playback-telemetry",
+        json={
+            "session_id": "session-1710000000000-abc123",
+            "events": [{"event_name": "audio_play", "segment_index": 1, "payload": {}}],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_record_playback_telemetry_rejects_audio_segment_index_mismatch(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "One. Two.", "fake", "Test", {})
+    segment_ids = storage.create_text_segments(generation_id, ["One.", "Two."])
+    audio_id = storage.record_audio_segment(
+        generation_id,
+        segment_ids[0],
+        0,
+        "audio/1/0.mp3",
+        "audio/mpeg",
+        10,
+        123,
+        "completed",
+        None,
+    )
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        f"/api/generations/{generation_id}/playback-telemetry",
+        json={
+            "session_id": "session-1710000000000-abc123",
+            "events": [{"event_name": "audio_play", "segment_index": 1, "audio_segment_id": audio_id, "payload": {}}],
+        },
+    )
+
+    assert response.status_code == 422
+
+
 async def test_generation_events_replays_existing_events(test_settings):
     app = create_app(settings=test_settings, run_background_inline=True)
     generation_id = await app.state.service.create_from_text(text="Hello world.", title="Note", voice="Test")

@@ -101,6 +101,16 @@ def validate_playback_telemetry_session_id(session_id: str) -> str:
     return session_id
 
 
+def _playback_telemetry_optional_int(value: Any, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"unsupported playback telemetry {field_name}")
+    if value < 0:
+        raise ValueError(f"unsupported playback telemetry {field_name}")
+    return value
+
+
 class Storage:
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
@@ -503,20 +513,52 @@ class Storage:
             generation = conn.execute("SELECT id FROM generations WHERE id = ?", (generation_id,)).fetchone()
             if generation is None:
                 raise KeyError(f"generation {generation_id} not found")
-            event_names = {str(event["event_name"]) for event in events}
+
+            normalized_events = []
+            event_names = set()
+            segment_indexes = set()
+            audio_segment_ids = set()
+            for event in events:
+                event_name = str(event["event_name"])
+                segment_index = _playback_telemetry_optional_int(event.get("segment_index"), "segment_index")
+                audio_segment_id = _playback_telemetry_optional_int(event.get("audio_segment_id"), "audio_segment_id")
+                event_names.add(event_name)
+                if segment_index is not None:
+                    segment_indexes.add(segment_index)
+                if audio_segment_id is not None:
+                    audio_segment_ids.add(audio_segment_id)
+                normalized_events.append(
+                    {
+                        "event_name": event_name,
+                        "segment_index": segment_index,
+                        "audio_segment_id": audio_segment_id,
+                        "payload": event.get("payload", {}),
+                    }
+                )
+
             if not event_names.issubset(PLAYBACK_TELEMETRY_EVENT_NAMES):
                 raise ValueError("unsupported playback telemetry event")
 
-            audio_segment_ids = {
-                int(event["audio_segment_id"])
-                for event in events
-                if event.get("audio_segment_id") is not None
-            }
+            if segment_indexes:
+                placeholders = ",".join("?" for _ in segment_indexes)
+                rows = conn.execute(
+                    f"""
+                    SELECT segment_index
+                    FROM text_segments
+                    WHERE generation_id = ? AND segment_index IN ({placeholders})
+                    """,
+                    (generation_id, *segment_indexes),
+                ).fetchall()
+                found_indexes = {int(row["segment_index"]) for row in rows}
+                if found_indexes != segment_indexes:
+                    raise ValueError("playback telemetry segment index does not belong to generation")
+
+            audio_segment_indexes = {}
             if audio_segment_ids:
                 placeholders = ",".join("?" for _ in audio_segment_ids)
                 rows = conn.execute(
                     f"""
-                    SELECT id
+                    SELECT id, segment_index
                     FROM audio_segments
                     WHERE generation_id = ? AND id IN ({placeholders})
                     """,
@@ -525,17 +567,28 @@ class Storage:
                 found_ids = {int(row["id"]) for row in rows}
                 if found_ids != audio_segment_ids:
                     raise KeyError(f"audio segment does not belong to generation {generation_id}")
+                audio_segment_indexes = {int(row["id"]): int(row["segment_index"]) for row in rows}
+
+            for event in normalized_events:
+                audio_segment_id = event["audio_segment_id"]
+                segment_index = event["segment_index"]
+                if (
+                    audio_segment_id is not None
+                    and segment_index is not None
+                    and audio_segment_indexes[audio_segment_id] != segment_index
+                ):
+                    raise ValueError("playback telemetry audio segment does not match segment index")
 
             rows = [
                 (
                     generation_id,
                     session_id,
-                    str(event["event_name"]),
-                    event.get("segment_index"),
-                    event.get("audio_segment_id"),
+                    event["event_name"],
+                    event["segment_index"],
+                    event["audio_segment_id"],
                     json.dumps(self._playback_telemetry_payload(event.get("payload", {}))),
                 )
-                for event in events
+                for event in normalized_events
             ]
             conn.executemany(
                 """

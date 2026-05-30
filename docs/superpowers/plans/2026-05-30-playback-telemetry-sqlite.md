@@ -840,8 +840,8 @@ In `openGeneration`, after `state.currentGenerationId = generationId`, call:
 
 ```js
 recordPlaybackTelemetry("generation_opened", {
-  platform: navigator.platform || "",
-  user_agent: navigator.userAgent || "",
+  platform: telemetryPlatform(),
+  user_agent: telemetryUserAgent(),
 });
 ```
 

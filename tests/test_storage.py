@@ -173,6 +173,45 @@ def test_playback_telemetry_requires_audio_segment_from_same_generation(test_set
         )
 
 
+def test_playback_telemetry_requires_segment_from_same_generation(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+    storage.create_text_segments(generation_id, ["A"])
+
+    with pytest.raises(ValueError):
+        storage.record_playback_telemetry(
+            generation_id,
+            "session-1710000000000-abc123",
+            [{"event_name": "audio_play", "segment_index": 1, "payload": {}}],
+        )
+
+
+def test_playback_telemetry_requires_audio_segment_index_match(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A B", "fake", "Test", {})
+    segment_ids = storage.create_text_segments(generation_id, ["A", "B"])
+    audio_id = storage.record_audio_segment(
+        generation_id,
+        segment_ids[0],
+        0,
+        "audio/1/0.mp3",
+        "audio/mpeg",
+        10,
+        123,
+        "completed",
+        None,
+    )
+
+    with pytest.raises(ValueError):
+        storage.record_playback_telemetry(
+            generation_id,
+            "session-1710000000000-abc123",
+            [{"event_name": "audio_play", "segment_index": 1, "audio_segment_id": audio_id, "payload": {}}],
+        )
+
+
 def test_playback_telemetry_drops_unknown_payload_keys(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
@@ -257,6 +296,7 @@ def test_playback_telemetry_retains_newest_events_per_generation(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
     generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+    storage.create_text_segments(generation_id, [f"Segment {index}" for index in range(1005)])
 
     storage.record_playback_telemetry(
         generation_id,

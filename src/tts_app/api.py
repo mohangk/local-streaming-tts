@@ -307,6 +307,8 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="generation not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         logger.info(
             "playback_telemetry_recorded generation_id=%s session_id=%s events=%s",
             generation_id,
