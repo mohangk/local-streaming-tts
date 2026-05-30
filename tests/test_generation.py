@@ -118,7 +118,7 @@ async def test_generation_service_passes_language_to_provider(test_settings):
         segment_max_chars=20,
     )
 
-    generation_id = await service.create_from_text("你好。", title="Manual text", voice="Cherry")
+    generation_id = await service.create_from_text("你好。", title="Image text", source_type="image", voice="Cherry")
     await service.run_generation(generation_id, voice="Cherry", speed=1.0, language="Chinese")
 
     assert provider.options == [TTSOptions(voice="Cherry", speed=1.0, language="Chinese")]
