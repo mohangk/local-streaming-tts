@@ -67,6 +67,8 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "generation-form.js" in architecture
     assert "voice-controls.js" in architecture
     assert "api-client.js" in architecture
+    assert "SQLite-backed playback telemetry" in architecture
+    assert "content-free" in architecture
     assert "forward migrations" in architecture
     assert "fake implementation" in architecture
     assert "Architecture Review" in architecture

@@ -99,6 +99,7 @@ Frontend state rules:
 - Backend deletion must go through explicit API calls and confirmation where user data is removed.
 - Busy-button helpers must leave controls in the correct final enabled/disabled state after async wrappers restore button state.
 - Browser asset version query strings should change when HTML/CSS/JS compatibility changes.
+- SQLite-backed playback telemetry should stay local-first and content-free. Store diagnostic generation playback events in SQLite, delete them with the generation, and do not collect article text, OCR text, extracted URL content, generated audio bytes, or provider raw responses.
 
 ## Testing Approach
 
