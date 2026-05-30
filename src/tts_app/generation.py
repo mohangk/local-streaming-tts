@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from tts_app.continuous_audio import ContinuousAudioStitcher
 from tts_app.events import EventBroker
 from tts_app.providers.base import TTSOptions, TTSProvider
 from tts_app.segmenter import segment_text
@@ -27,6 +28,7 @@ class GenerationService:
         self.broker = broker
         self.audio_dir = Path(audio_dir)
         self.segment_max_chars = segment_max_chars
+        self.continuous_audio = ContinuousAudioStitcher(storage, self.audio_dir.parent)
 
     async def create_from_text(
         self,
@@ -98,6 +100,7 @@ class GenerationService:
             return
 
         self.storage.update_generation_status(generation_id, "completed")
+        self.continuous_audio.ensure_appended(generation_id)
         logger.info("generation_completed generation_id=%s", generation_id)
         await self.broker.publish(generation_id, {"type": "generation_completed", "generation_id": generation_id})
 
@@ -144,6 +147,7 @@ class GenerationService:
                 status="completed",
                 error=None,
             )
+            self.continuous_audio.ensure_appended(generation_id)
             logger.info(
                 "segment_completed generation_id=%s segment_index=%s text_segment_id=%s audio_segment_id=%s byte_size=%s",
                 generation_id,

@@ -61,6 +61,31 @@ async def test_generation_service_persists_segments_and_audio(test_settings):
 
 
 @pytest.mark.asyncio
+async def test_generation_service_builds_continuous_audio_artifact(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    broker = EventBroker()
+    service = GenerationService(
+        storage=storage,
+        provider=FakeTTSProvider(),
+        broker=broker,
+        audio_dir=test_settings.audio_dir,
+        segment_max_chars=20,
+    )
+
+    generation_id = await service.create_from_text("One sentence. Two sentence. Three sentence.", title="Manual text")
+    await service.run_generation(generation_id)
+
+    artifact = storage.get_continuous_audio_artifact(generation_id)
+    full_path = test_settings.data_dir / artifact["file_path"]
+
+    assert artifact["status"] == "completed"
+    assert artifact["appended_through_segment_index"] == len(storage.get_generation(generation_id)["text_segments"]) - 1
+    assert full_path.exists()
+    assert artifact["byte_size"] == full_path.stat().st_size
+
+
+@pytest.mark.asyncio
 async def test_generation_service_logs_generation_lifecycle(test_settings, caplog):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
