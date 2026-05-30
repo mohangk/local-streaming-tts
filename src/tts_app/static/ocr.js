@@ -19,7 +19,9 @@ import {
   ocrUploadProgress,
   ocrUploadStatus,
   playerStatus,
+  speedSelect,
   uploadImageFilesButton,
+  voiceSelect,
 } from "./dom.js?v=ocr-generate-fix-1";
 import { escapeHtml, withButtonBusy } from "./utils.js?v=ocr-generate-fix-1";
 

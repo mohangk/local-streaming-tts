@@ -13,7 +13,7 @@ button.is-busy::after, button[aria-busy="true"]::after {
   width: 0.85rem;
   height: 0.85rem;
   margin-top: -0.425rem;
-  border: 2px solid currentColor;
+  border: 2px solid currentcolor;
   border-right-color: transparent;
   border-radius: 50%;
   animation: spin 700ms linear infinite;

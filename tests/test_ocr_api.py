@@ -367,6 +367,23 @@ def test_update_ocr_draft_and_create_generation(test_settings):
     assert detail["generation"]["settings"]["ocr_draft_id"] == draft["id"]
 
 
+def test_update_ocr_draft_ignores_legacy_top_level_extracted_text(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        data={"language": "en"},
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+
+    update = client.put(
+        f"/api/ocr-drafts/{draft['id']}",
+        json={"language": "en", "extracted_text": "Legacy text should not be used"},
+    )
+
+    assert update.status_code == 200
+    assert update.json()["combined_text"] == draft["combined_text"]
+
+
 def test_ocr_generation_uses_combined_text(test_settings):
     client = TestClient(create_app(test_settings, run_background_inline=True))
     draft = client.post(

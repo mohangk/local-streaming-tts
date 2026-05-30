@@ -326,7 +326,7 @@ def test_one_ocr_draft_can_link_to_a_generation(test_settings):
     generation_id = storage.create_generation("image", "Image text", None, "text", "fake", "Test", {"ocr_draft_id": first_draft_id})
     storage.link_ocr_draft_generation(first_draft_id, generation_id)
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(ValueError, match="generation is already linked to an ocr draft"):
         storage.link_ocr_draft_generation(second_draft_id, generation_id)
 
 

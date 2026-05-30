@@ -101,6 +101,8 @@ def test_frontend_styles_action_button_feedback_states():
     assert ".is-busy" in css
     assert ".is-busy::after" in css
     assert "aria-busy" in css
+    assert "currentcolor" in css
+    assert "currentColor" not in css
 
 
 def test_frontend_hidden_class_overrides_display_utility_classes():
@@ -266,11 +268,15 @@ def test_frontend_marks_ocr_draft_linked_after_generation_success():
 
 def test_frontend_shows_busy_feedback_while_generating_ocr_audio():
     js = frontend_js()
+    ocr_js = (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
+    ocr_imports = ocr_js.split('} from "./dom.js', 1)[0]
     generator = js.split("async function generateOcrAudio", 1)[1].split("async function deleteOcrDraftImage", 1)[0]
 
     assert "async function generateOcrAudio(button = null)" in js
     assert "withButtonBusy(button, \"Generating...\"" in generator
     assert "generateOcrAudioButton.addEventListener(\"click\", () => generateOcrAudio(generateOcrAudioButton))" in js
+    assert "voiceSelect" in ocr_imports
+    assert "speedSelect" in ocr_imports
 
 
 def test_frontend_draft_images_mode_owns_unlinked_draft_list():

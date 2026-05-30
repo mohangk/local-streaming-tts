@@ -182,7 +182,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     @app.post("/api/generations/text")
     async def submit_text(payload: TextGenerationRequest, background_tasks: BackgroundTasks):
         _validate_language(payload.language)
-        voice = payload.voice or active_settings.default_english_voice
+        voice = payload.voice or _default_voice_for_language(active_settings, payload.language)
         generation_id = await service.create_from_text(
             text=payload.text,
             title=payload.title,
@@ -210,7 +210,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     @app.post("/api/generations/url")
     async def submit_url(payload: UrlGenerationRequest, background_tasks: BackgroundTasks):
         _validate_language(payload.language)
-        voice = payload.voice or active_settings.default_english_voice
+        voice = payload.voice or _default_voice_for_language(active_settings, payload.language)
         try:
             extracted = await fetch_and_extract(payload.url)
         except ExtractionError as exc:
@@ -313,6 +313,12 @@ def _validate_language(language: str) -> None:
 
 def _tts_language(language: str) -> str:
     return TTS_LANGUAGES.get(language, "Auto")
+
+
+def _default_voice_for_language(settings: Settings, language: str) -> str:
+    if language == "zh":
+        return settings.default_chinese_voice
+    return settings.default_english_voice
 
 
 def _default_provider_voice(options: tuple[SelectOption, ...], preferred: str) -> str:

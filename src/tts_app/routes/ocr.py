@@ -31,7 +31,6 @@ class OcrDraftUpdateRequest(BaseModel):
     language: str
     combined_text: str | None = None
     images: list[OcrDraftImageUpdate] = Field(default_factory=list)
-    extracted_text: str | None = None
 
 
 class OcrDraftGenerationRequest(BaseModel):
@@ -211,8 +210,6 @@ def create_ocr_router(
         try:
             image_texts = {item.id: item.extracted_text for item in payload.images}
             combined_text = payload.combined_text
-            if combined_text is None and payload.extracted_text is not None:
-                combined_text = payload.extracted_text
             storage.update_ocr_draft(draft_id, language=payload.language, combined_text=combined_text, image_texts=image_texts)
             return storage.get_ocr_draft(draft_id)
         except KeyError as exc:

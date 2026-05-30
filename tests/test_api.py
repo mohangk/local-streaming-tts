@@ -72,6 +72,19 @@ def test_submit_text_defaults_to_configured_english_voice(test_settings):
 
     assert detail["generation"]["voice"] == test_settings.default_english_voice
 
+def test_submit_text_defaults_to_configured_chinese_voice(test_settings):
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    generation_id = client.post(
+        "/api/generations/text",
+        json={"text": "你好。", "title": "Note", "language": "zh"},
+    ).json()["generation_id"]
+
+    detail = client.get(f"/api/generations/{generation_id}").json()
+
+    assert detail["generation"]["voice"] == test_settings.default_chinese_voice
+
 def test_options_returns_voice_and_speed_choices(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)
@@ -225,6 +238,23 @@ def test_submit_url_defaults_to_configured_english_voice(test_settings, monkeypa
     detail = client.get(f"/api/generations/{generation_id}").json()
 
     assert detail["generation"]["voice"] == test_settings.default_english_voice
+
+def test_submit_url_defaults_to_configured_chinese_voice(test_settings, monkeypatch):
+    async def fake_fetch_and_extract(url: str) -> ExtractedText:
+        return ExtractedText(title="Page", text="你好。", url=url)
+
+    monkeypatch.setattr("tts_app.api.fetch_and_extract", fake_fetch_and_extract)
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    generation_id = client.post(
+        "/api/generations/url",
+        json={"url": "https://example.test/page", "language": "zh"},
+    ).json()["generation_id"]
+
+    detail = client.get(f"/api/generations/{generation_id}").json()
+
+    assert detail["generation"]["voice"] == test_settings.default_chinese_voice
 
 def test_submit_url_preserves_explicit_voice(test_settings, monkeypatch):
     async def fake_fetch_and_extract(url: str) -> ExtractedText:

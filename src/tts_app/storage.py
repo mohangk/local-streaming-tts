@@ -677,14 +677,17 @@ class Storage:
 
     def link_ocr_draft_generation(self, draft_id: int, generation_id: int) -> None:
         with self.connection() as conn:
-            cur = conn.execute(
-                """
-                UPDATE ocr_drafts
-                SET linked_generation_id = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND linked_generation_id IS NULL
-                """,
-                (generation_id, draft_id),
-            )
+            try:
+                cur = conn.execute(
+                    """
+                    UPDATE ocr_drafts
+                    SET linked_generation_id = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND linked_generation_id IS NULL
+                    """,
+                    (generation_id, draft_id),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("generation is already linked to an ocr draft") from exc
             if cur.rowcount == 0:
                 exists = conn.execute("SELECT 1 FROM ocr_drafts WHERE id = ?", (draft_id,)).fetchone()
                 if exists is None:
