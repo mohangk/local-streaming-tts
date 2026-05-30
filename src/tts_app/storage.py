@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -9,6 +10,30 @@ from typing import Any, Iterator
 from tts_app.models import SourceType, Status
 
 PLAYBACK_TELEMETRY_RETENTION_LIMIT = 1000
+PLAYBACK_TELEMETRY_EVENT_NAMES = {
+    "audio_ended",
+    "audio_error",
+    "audio_pause",
+    "audio_play",
+    "audio_stalled",
+    "audio_suspend",
+    "audio_waiting",
+    "event_source_error",
+    "generation_opened",
+    "page_frozen",
+    "page_hidden",
+    "page_resumed",
+    "page_shown",
+    "playback_ended_action",
+    "progress_save_attempted",
+    "progress_save_failed",
+    "progress_save_succeeded",
+    "segment_play_attempted",
+    "visibility_changed",
+    "wake_lock_acquired",
+    "wake_lock_failed",
+    "wake_lock_released",
+}
 PLAYBACK_TELEMETRY_PAYLOAD_KEYS = {
     "audio_current_time",
     "audio_duration",
@@ -31,6 +56,35 @@ PLAYBACK_TELEMETRY_PAYLOAD_KEYS = {
     "user_agent",
     "visibility_state",
     "wake_lock_active",
+}
+PLAYBACK_TELEMETRY_BOOL_KEYS = {
+    "audio_ended",
+    "audio_paused",
+    "autoplay",
+    "completed",
+    "continuous_playback",
+    "document_hidden",
+    "wake_lock_active",
+}
+PLAYBACK_TELEMETRY_FLOAT_KEYS = {
+    "audio_current_time",
+    "audio_duration",
+}
+PLAYBACK_TELEMETRY_INT_KEYS = {
+    "audio_network_state",
+    "audio_ready_state",
+    "error_code",
+    "event_source_ready_state",
+    "last_segment_index",
+    "progress_percent",
+    "segmentIndex",
+    "segment_index",
+}
+PLAYBACK_TELEMETRY_ENUM_VALUES = {
+    "platform": {"android", "ios", "linux", "macos", "unknown", "windows"},
+    "type": {"clear-sample", "complete", "play-next", "stop"},
+    "user_agent": {"chrome", "edge", "firefox", "safari", "unknown"},
+    "visibility_state": {"hidden", "prerender", "unknown", "visible"},
 }
 
 
@@ -435,6 +489,9 @@ class Storage:
             generation = conn.execute("SELECT id FROM generations WHERE id = ?", (generation_id,)).fetchone()
             if generation is None:
                 raise KeyError(f"generation {generation_id} not found")
+            event_names = {str(event["event_name"]) for event in events}
+            if not event_names.issubset(PLAYBACK_TELEMETRY_EVENT_NAMES):
+                raise ValueError("unsupported playback telemetry event")
 
             audio_segment_ids = {
                 int(event["audio_segment_id"])
@@ -491,7 +548,26 @@ class Storage:
         return len(events)
 
     def _playback_telemetry_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return {key: value for key, value in payload.items() if key in PLAYBACK_TELEMETRY_PAYLOAD_KEYS}
+        sanitized: dict[str, Any] = {}
+        for key, value in payload.items():
+            if key not in PLAYBACK_TELEMETRY_PAYLOAD_KEYS:
+                continue
+            if key in PLAYBACK_TELEMETRY_BOOL_KEYS:
+                if isinstance(value, bool):
+                    sanitized[key] = value
+                continue
+            if key in PLAYBACK_TELEMETRY_INT_KEYS:
+                if isinstance(value, int) and not isinstance(value, bool):
+                    sanitized[key] = value
+                continue
+            if key in PLAYBACK_TELEMETRY_FLOAT_KEYS:
+                if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+                    sanitized[key] = value
+                continue
+            allowed_values = PLAYBACK_TELEMETRY_ENUM_VALUES.get(key)
+            if allowed_values is not None and isinstance(value, str) and value in allowed_values:
+                sanitized[key] = value
+        return sanitized
 
     def list_playback_telemetry_events(self, generation_id: int) -> list[dict[str, Any]]:
         with self.connection() as conn:

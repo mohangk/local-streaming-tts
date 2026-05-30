@@ -478,6 +478,8 @@ def test_record_playback_telemetry_drops_content_payload_keys(test_settings):
                     "event_name": "audio_play",
                     "payload": {
                         "audio_paused": False,
+                        "type": "Secret article text.",
+                        "user_agent": "Secret article text.",
                         "article_text": "Secret article text.",
                         "ocr_text": "Visible OCR text",
                         "url": "https://example.test/private",
@@ -491,6 +493,21 @@ def test_record_playback_telemetry_drops_content_payload_keys(test_settings):
     assert response.status_code == 200
     events = Storage(test_settings.db_path).list_playback_telemetry_events(generation["generation_id"])
     assert events[0]["payload"] == {"audio_paused": False}
+
+
+def test_record_playback_telemetry_rejects_unknown_event_name(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    generation = client.post(
+        "/api/generations/text",
+        json={"text": "One.", "title": "Telemetry", "voice": "Test", "speed": 1.0, "language": "en"},
+    ).json()
+
+    response = client.post(
+        f"/api/generations/{generation['generation_id']}/playback-telemetry",
+        json={"session_id": "session-1", "events": [{"event_name": "Secret article text", "payload": {}}]},
+    )
+
+    assert response.status_code == 422
 
 
 async def test_generation_events_replays_existing_events(test_settings):

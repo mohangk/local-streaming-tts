@@ -199,6 +199,47 @@ def test_playback_telemetry_drops_unknown_payload_keys(test_settings):
     assert events[0]["payload"] == {"audio_paused": False}
 
 
+def test_playback_telemetry_drops_invalid_allowed_payload_values(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "Secret article text", "fake", "Test", {})
+
+    storage.record_playback_telemetry(
+        generation_id,
+        "session-1",
+        [
+            {
+                "event_name": "audio_play",
+                "payload": {
+                    "audio_paused": "Secret article text",
+                    "audio_current_time": "Secret article text",
+                    "type": "Secret article text",
+                    "visibility_state": "Secret article text",
+                    "platform": "Secret article text",
+                    "user_agent": "Secret article text",
+                    "wake_lock_active": True,
+                },
+            }
+        ],
+    )
+
+    events = storage.list_playback_telemetry_events(generation_id)
+    assert events[0]["payload"] == {"wake_lock_active": True}
+
+
+def test_playback_telemetry_rejects_unknown_event_names(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+
+    with pytest.raises(ValueError):
+        storage.record_playback_telemetry(
+            generation_id,
+            "session-1",
+            [{"event_name": "Secret article text", "payload": {}}],
+        )
+
+
 def test_playback_telemetry_retains_newest_events_per_generation(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()

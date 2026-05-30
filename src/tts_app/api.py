@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from tts_app.config import Settings, load_settings
 from tts_app.events import EventBroker
@@ -22,7 +22,7 @@ from tts_app.providers.options import SelectOption
 from tts_app.providers.registry import get_provider
 from tts_app.routes.ocr import create_ocr_router
 from tts_app.routes.shared import schedule_generation
-from tts_app.storage import Storage
+from tts_app.storage import PLAYBACK_TELEMETRY_EVENT_NAMES, Storage
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,13 @@ class PlaybackTelemetryEventRequest(BaseModel):
     segment_index: int | None = Field(default=None, ge=0)
     audio_segment_id: int | None = Field(default=None, ge=0)
     payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("event_name")
+    @classmethod
+    def validate_event_name(cls, value: str) -> str:
+        if value not in PLAYBACK_TELEMETRY_EVENT_NAMES:
+            raise ValueError("unsupported playback telemetry event")
+        return value
 
 
 class PlaybackTelemetryRequest(BaseModel):

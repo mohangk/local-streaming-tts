@@ -91,6 +91,44 @@ function recordPlaybackTelemetry(eventName, payload = {}) {
   }
 }
 
+function telemetryPlatform() {
+  const platform = (navigator.platform || "").toLowerCase();
+  const userAgent = (navigator.userAgent || "").toLowerCase();
+  if (userAgent.includes("android")) {
+    return "android";
+  }
+  if (/iphone|ipad|ipod/.test(userAgent)) {
+    return "ios";
+  }
+  if (platform.includes("mac")) {
+    return "macos";
+  }
+  if (platform.includes("win")) {
+    return "windows";
+  }
+  if (platform.includes("linux")) {
+    return "linux";
+  }
+  return "unknown";
+}
+
+function telemetryUserAgent() {
+  const userAgent = (navigator.userAgent || "").toLowerCase();
+  if (userAgent.includes("firefox")) {
+    return "firefox";
+  }
+  if (userAgent.includes("edg/")) {
+    return "edge";
+  }
+  if (userAgent.includes("chrome") || userAgent.includes("crios")) {
+    return "chrome";
+  }
+  if (userAgent.includes("safari")) {
+    return "safari";
+  }
+  return "unknown";
+}
+
 function selectedVoiceOption() {
   const language = currentLanguage();
   return state.options.voices.find(
@@ -392,8 +430,8 @@ async function openGeneration(generationId, options = {}) {
     const loaded = await loadGenerationDetail(generationId);
     if (loaded) {
       recordPlaybackTelemetry("generation_opened", {
-        platform: navigator.platform || "",
-        user_agent: navigator.userAgent || "",
+        platform: telemetryPlatform(),
+        user_agent: telemetryUserAgent(),
       });
     }
     if (loaded && state.autoplay) {
