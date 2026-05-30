@@ -29,14 +29,14 @@ def create_playback_router(*, settings: Settings, storage: Storage, service: Gen
         if start_segment < 0:
             raise HTTPException(status_code=422, detail="start_segment must be non-negative")
         try:
-            detail = storage.get_generation(generation_id)
+            detail = await anyio.to_thread.run_sync(storage.get_generation, generation_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="generation not found") from exc
         if start_segment >= len(detail["text_segments"]):
             raise HTTPException(status_code=416, detail="start segment outside generation")
 
         try:
-            artifact = service.continuous_audio.ensure_appended(generation_id)
+            artifact = await anyio.to_thread.run_sync(service.continuous_audio.ensure_appended, generation_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="generation not found") from exc
         except ContinuousAudioError as exc:
@@ -45,10 +45,12 @@ def create_playback_router(*, settings: Settings, storage: Storage, service: Gen
         if appended_through < start_segment:
             raise HTTPException(status_code=409, detail="start segment audio is not ready")
 
-        completed_segments = storage.list_completed_audio_segments_for_stitching(generation_id)
-        completed_by_index = {int(segment["segment_index"]): segment for segment in completed_segments}
+        completed_segments = await anyio.to_thread.run_sync(
+            storage.list_completed_audio_segments_for_stitching,
+            generation_id,
+        )
         try:
-            start_offset = sum(int(completed_by_index[index]["byte_size"]) for index in range(start_segment))
+            start_offset = _continuous_start_offset(completed_segments, start_segment, appended_through)
         except KeyError as exc:
             raise HTTPException(status_code=409, detail="start segment audio is not ready") from exc
 
@@ -56,22 +58,22 @@ def create_playback_router(*, settings: Settings, storage: Storage, service: Gen
             position = start_offset
             while True:
                 try:
-                    artifact = service.continuous_audio.ensure_appended(generation_id)
+                    artifact, chunk, generation_status = await anyio.to_thread.run_sync(
+                        _read_continuous_audio_chunk,
+                        settings,
+                        storage,
+                        service,
+                        generation_id,
+                        position,
+                    )
                 except ContinuousAudioError:
                     break
-                path = settings.data_dir / artifact["file_path"]
-                if path.exists():
-                    size = path.stat().st_size
-                    if position < size:
-                        with path.open("rb") as audio_file:
-                            audio_file.seek(position)
-                            while chunk := audio_file.read(64 * 1024):
-                                position += len(chunk)
-                                yield chunk
-                        continue
+                if chunk:
+                    position += len(chunk)
+                    yield chunk
+                    continue
 
-                detail = storage.get_generation(generation_id)
-                if artifact["status"] == "completed" or detail["generation"]["status"] in {"completed", "failed"}:
+                if artifact["status"] == "completed" or generation_status in {"completed", "failed"}:
                     break
                 await anyio.sleep(0.2)
 
@@ -82,3 +84,37 @@ def create_playback_router(*, settings: Settings, storage: Storage, service: Gen
         )
 
     return router
+
+
+def _continuous_start_offset(
+    completed_segments: list[dict],
+    start_segment: int,
+    appended_through: int,
+) -> int:
+    completed_by_index = {
+        int(segment["segment_index"]): segment
+        for segment in completed_segments
+        if int(segment["segment_index"]) <= appended_through
+    }
+    for index in range(appended_through + 1):
+        if index not in completed_by_index:
+            raise KeyError(index)
+    return sum(int(completed_by_index[index]["byte_size"]) for index in range(start_segment))
+
+
+def _read_continuous_audio_chunk(
+    settings: Settings,
+    storage: Storage,
+    service: GenerationService,
+    generation_id: int,
+    position: int,
+) -> tuple[dict, bytes, str]:
+    artifact = service.continuous_audio.ensure_appended(generation_id)
+    path = settings.data_dir / artifact["file_path"]
+    chunk = b""
+    if path.exists() and position < path.stat().st_size:
+        with path.open("rb") as audio_file:
+            audio_file.seek(position)
+            chunk = audio_file.read(64 * 1024)
+    detail = storage.get_generation(generation_id)
+    return artifact, chunk, detail["generation"]["status"]

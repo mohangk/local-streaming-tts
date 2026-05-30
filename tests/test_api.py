@@ -432,6 +432,25 @@ def test_delete_generation_removes_history_and_audio_files(test_settings):
     assert all(item["id"] != generation_id for item in client.get("/api/generations").json())
     assert not audio_path.exists()
 
+
+def test_delete_generation_removes_continuous_artifact_from_custom_audio_dir(test_settings):
+    settings = replace(test_settings, audio_dir=test_settings.data_dir / "custom-audio")
+    app = create_app(settings=settings, run_background_inline=True)
+    client = TestClient(app)
+    generation_id = client.post("/api/generations/text", json={"text": "Hello world.", "title": "Note"}).json()[
+        "generation_id"
+    ]
+    artifact = app.state.storage.get_continuous_audio_artifact(generation_id)
+    full_path = settings.data_dir / artifact["file_path"]
+    assert full_path.exists()
+    assert settings.audio_dir in full_path.parents
+
+    response = client.delete(f"/api/generations/{generation_id}")
+
+    assert response.status_code == 204
+    assert not full_path.exists()
+
+
 def test_delete_missing_generation_returns_404(test_settings):
     app = create_app(settings=test_settings)
     client = TestClient(app)

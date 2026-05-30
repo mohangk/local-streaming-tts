@@ -7,6 +7,7 @@ from typing import AsyncIterator
 import pytest
 
 from tts_app.events import EventBroker
+from tts_app.continuous_audio import ContinuousAudioError
 from tts_app.generation import GenerationService
 from tts_app.providers.base import AudioChunk, ProviderError, TTSOptions
 from tts_app.providers.fake import FakeTTSProvider
@@ -33,6 +34,11 @@ class CapturingProvider:
     async def stream_speech(self, text: str, options: TTSOptions) -> AsyncIterator[AudioChunk]:
         self.options.append(options)
         yield AudioChunk(data=b"audio", mime_type="audio/mpeg", extension="mp3")
+
+
+class FailingContinuousAudio:
+    def ensure_appended(self, generation_id: int) -> dict[str, object]:
+        raise ContinuousAudioError("stitch failed")
 
 
 @pytest.mark.asyncio
@@ -83,6 +89,31 @@ async def test_generation_service_builds_continuous_audio_artifact(test_settings
     assert artifact["appended_through_segment_index"] == len(storage.get_generation(generation_id)["text_segments"]) - 1
     assert full_path.exists()
     assert artifact["byte_size"] == full_path.stat().st_size
+
+
+@pytest.mark.asyncio
+async def test_generation_service_treats_continuous_audio_failure_as_nonfatal(test_settings, caplog):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    broker = EventBroker()
+    service = GenerationService(
+        storage=storage,
+        provider=FakeTTSProvider(),
+        broker=broker,
+        audio_dir=test_settings.audio_dir,
+        segment_max_chars=20,
+    )
+    service.continuous_audio = FailingContinuousAudio()
+
+    with caplog.at_level(logging.ERROR, logger="tts_app.generation"):
+        generation_id = await service.create_from_text("One sentence.", title="Manual text")
+        await service.run_generation(generation_id)
+
+    detail = storage.get_generation(generation_id)
+    assert detail["generation"]["status"] == "completed"
+    assert detail["text_segments"][0]["status"] == "completed"
+    assert detail["audio_segments"][0]["status"] == "completed"
+    assert any("continuous_audio_append_failed generation_id=" in record.getMessage() for record in caplog.records)
 
 
 @pytest.mark.asyncio

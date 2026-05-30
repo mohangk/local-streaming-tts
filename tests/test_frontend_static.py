@@ -82,9 +82,9 @@ def test_frontend_static_asset_version_bumped_for_continuous_playback():
     assert 'src="/static/app.js?v=continuous-playback-1"' in html
     assert "?v=continuous-playback-1" in app_js
     assert "?v=continuous-playback-1" in ocr_js
-    assert "playback-vitest-1" not in html
-    assert "playback-vitest-1" not in app_js
-    assert "playback-vitest-1" not in ocr_js
+    for source in (html, app_js, ocr_js):
+        assert "playback-vitest-1" not in source
+        assert "playback-telemetry-1" not in source
 
 
 def test_frontend_javascript_uses_history_and_event_endpoints():
@@ -455,6 +455,12 @@ def test_continuous_audio_route_lives_outside_app_factory():
     assert "create_playback_router" in api_py
     assert "continuous-audio" not in api_py
     assert "continuous-audio" in playback_py
+
+
+def test_continuous_audio_route_offloads_blocking_stream_work():
+    playback_py = (SRC_DIR / "routes" / "playback.py").read_text(encoding="utf-8")
+
+    assert "anyio.to_thread.run_sync" in playback_py
 
 
 def test_frontend_user_started_history_playback_continues_between_segments():

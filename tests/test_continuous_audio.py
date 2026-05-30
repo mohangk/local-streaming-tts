@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -8,10 +10,11 @@ from tts_app.continuous_audio import ContinuousAudioError, ContinuousAudioStitch
 from tts_app.storage import Storage
 
 
-def _generation_with_audio(storage: Storage, data_dir: Path, count: int = 3) -> int:
+def _generation_with_audio(storage: Storage, audio_dir_root: Path, count: int = 3) -> int:
+    data_dir = audio_dir_root.parent
     generation_id = storage.create_generation("text", "Manual text", None, "A B C", "fake", "Test", {})
     segment_ids = storage.create_text_segments(generation_id, ["A", "B", "C"][:count])
-    audio_dir = data_dir / "audio" / str(generation_id)
+    audio_dir = audio_dir_root / str(generation_id)
     audio_dir.mkdir(parents=True)
     for index, text_segment_id in enumerate(segment_ids):
         path = audio_dir / f"segment-{index + 1:04d}.mp3"
@@ -33,8 +36,8 @@ def _generation_with_audio(storage: Storage, data_dir: Path, count: int = 3) -> 
 def test_stitcher_appends_completed_segments_in_order(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    generation_id = _generation_with_audio(storage, test_settings.data_dir)
-    stitcher = ContinuousAudioStitcher(storage, test_settings.data_dir)
+    generation_id = _generation_with_audio(storage, test_settings.audio_dir)
+    stitcher = ContinuousAudioStitcher(storage, test_settings.audio_dir)
 
     artifact = stitcher.ensure_appended(generation_id)
 
@@ -47,8 +50,8 @@ def test_stitcher_appends_completed_segments_in_order(test_settings):
 def test_stitcher_is_idempotent(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    generation_id = _generation_with_audio(storage, test_settings.data_dir)
-    stitcher = ContinuousAudioStitcher(storage, test_settings.data_dir)
+    generation_id = _generation_with_audio(storage, test_settings.audio_dir)
+    stitcher = ContinuousAudioStitcher(storage, test_settings.audio_dir)
 
     stitcher.ensure_appended(generation_id)
     stitcher.ensure_appended(generation_id)
@@ -57,11 +60,52 @@ def test_stitcher_is_idempotent(test_settings):
     assert (test_settings.data_dir / artifact["file_path"]).read_bytes() == b"SEG0SEG1SEG2"
 
 
+def test_stitcher_stores_artifact_under_configured_audio_dir(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    custom_audio_dir = test_settings.data_dir / "custom-audio"
+    generation_id = _generation_with_audio(storage, custom_audio_dir)
+    stitcher = ContinuousAudioStitcher(storage, custom_audio_dir)
+
+    artifact = stitcher.ensure_appended(generation_id)
+
+    assert artifact["file_path"] == f"custom-audio/{generation_id}/full.mp3"
+    assert (test_settings.data_dir / artifact["file_path"]).read_bytes() == b"SEG0SEG1SEG2"
+
+
+def test_stitcher_serializes_concurrent_initial_builds(test_settings, monkeypatch):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = _generation_with_audio(storage, test_settings.audio_dir)
+    stitcher = ContinuousAudioStitcher(storage, test_settings.audio_dir)
+    barrier = threading.Barrier(2)
+    original_write_bytes = Path.write_bytes
+
+    def synchronized_truncate(path: Path, data: bytes) -> int:
+        if path.name == "full.mp3" and data == b"":
+            try:
+                barrier.wait(timeout=0.2)
+            except threading.BrokenBarrierError:
+                pass
+        return original_write_bytes(path, data)
+
+    monkeypatch.setattr(Path, "write_bytes", synchronized_truncate)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: stitcher.ensure_appended(generation_id), range(2)))
+
+    artifact = storage.get_continuous_audio_artifact(generation_id)
+    assert [result["appended_through_segment_index"] for result in results] == [2, 2]
+    assert artifact["appended_through_segment_index"] == 2
+    assert artifact["byte_size"] == len(b"SEG0SEG1SEG2")
+    assert (test_settings.data_dir / artifact["file_path"]).read_bytes() == b"SEG0SEG1SEG2"
+
+
 def test_stitcher_repairs_missing_artifact_file(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    generation_id = _generation_with_audio(storage, test_settings.data_dir)
-    stitcher = ContinuousAudioStitcher(storage, test_settings.data_dir)
+    generation_id = _generation_with_audio(storage, test_settings.audio_dir)
+    stitcher = ContinuousAudioStitcher(storage, test_settings.audio_dir)
     artifact = stitcher.ensure_appended(generation_id)
     full_path = test_settings.data_dir / artifact["file_path"]
     full_path.unlink()
@@ -76,8 +120,8 @@ def test_stitcher_repairs_missing_artifact_file(test_settings):
 def test_stitcher_repairs_truncated_artifact_file(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    generation_id = _generation_with_audio(storage, test_settings.data_dir)
-    stitcher = ContinuousAudioStitcher(storage, test_settings.data_dir)
+    generation_id = _generation_with_audio(storage, test_settings.audio_dir)
+    stitcher = ContinuousAudioStitcher(storage, test_settings.audio_dir)
     artifact = stitcher.ensure_appended(generation_id)
     full_path = test_settings.data_dir / artifact["file_path"]
     full_path.write_bytes(b"SEG0")
@@ -92,10 +136,10 @@ def test_stitcher_repairs_truncated_artifact_file(test_settings):
 def test_stitcher_marks_artifact_failed_when_source_segment_file_is_missing(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    generation_id = _generation_with_audio(storage, test_settings.data_dir)
+    generation_id = _generation_with_audio(storage, test_settings.audio_dir)
     missing_path = test_settings.data_dir / "audio" / str(generation_id) / "segment-0002.mp3"
     missing_path.unlink()
-    stitcher = ContinuousAudioStitcher(storage, test_settings.data_dir)
+    stitcher = ContinuousAudioStitcher(storage, test_settings.audio_dir)
 
     with pytest.raises(ContinuousAudioError, match="audio segment file missing"):
         stitcher.ensure_appended(generation_id)
@@ -126,7 +170,7 @@ def test_stitcher_stops_at_missing_segment_gap(test_settings):
             "completed",
             None,
         )
-    stitcher = ContinuousAudioStitcher(storage, test_settings.data_dir)
+    stitcher = ContinuousAudioStitcher(storage, test_settings.audio_dir)
 
     artifact = stitcher.ensure_appended(generation_id)
 

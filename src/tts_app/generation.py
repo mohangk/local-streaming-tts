@@ -28,7 +28,7 @@ class GenerationService:
         self.broker = broker
         self.audio_dir = Path(audio_dir)
         self.segment_max_chars = segment_max_chars
-        self.continuous_audio = ContinuousAudioStitcher(storage, self.audio_dir.parent)
+        self.continuous_audio = ContinuousAudioStitcher(storage, self.audio_dir)
 
     async def create_from_text(
         self,
@@ -100,7 +100,7 @@ class GenerationService:
             return
 
         self.storage.update_generation_status(generation_id, "completed")
-        self.continuous_audio.ensure_appended(generation_id)
+        self._ensure_continuous_audio(generation_id)
         logger.info("generation_completed generation_id=%s", generation_id)
         await self.broker.publish(generation_id, {"type": "generation_completed", "generation_id": generation_id})
 
@@ -147,7 +147,7 @@ class GenerationService:
                 status="completed",
                 error=None,
             )
-            self.continuous_audio.ensure_appended(generation_id)
+            self._ensure_continuous_audio(generation_id, segment_index)
             logger.info(
                 "segment_completed generation_id=%s segment_index=%s text_segment_id=%s audio_segment_id=%s byte_size=%s",
                 generation_id,
@@ -179,3 +179,16 @@ class GenerationService:
                 exc,
             )
             raise
+
+    def _ensure_continuous_audio(self, generation_id: int, segment_index: int | None = None) -> None:
+        try:
+            self.continuous_audio.ensure_appended(generation_id)
+        except Exception:
+            if segment_index is None:
+                logger.exception("continuous_audio_append_failed generation_id=%s", generation_id)
+                return
+            logger.exception(
+                "continuous_audio_append_failed generation_id=%s segment_index=%s",
+                generation_id,
+                segment_index,
+            )
