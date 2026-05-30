@@ -22,7 +22,7 @@ from tts_app.providers.options import SelectOption
 from tts_app.providers.registry import get_provider
 from tts_app.routes.ocr import create_ocr_router
 from tts_app.routes.shared import schedule_generation
-from tts_app.storage import PLAYBACK_TELEMETRY_EVENT_NAMES, Storage
+from tts_app.storage import PLAYBACK_TELEMETRY_EVENT_NAMES, Storage, validate_playback_telemetry_session_id
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,11 @@ class PlaybackTelemetryEventRequest(BaseModel):
 class PlaybackTelemetryRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=128)
     events: list[PlaybackTelemetryEventRequest] = Field(min_length=1, max_length=PLAYBACK_TELEMETRY_BATCH_LIMIT)
+
+    @field_validator("session_id")
+    @classmethod
+    def validate_session_id(cls, value: str) -> str:
+        return validate_playback_telemetry_session_id(value)
 
 
 class VoicePreferenceRequest(BaseModel):

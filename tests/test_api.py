@@ -409,7 +409,7 @@ def test_record_playback_telemetry_batch(test_settings):
     response = client.post(
         f"/api/generations/{generation_id}/playback-telemetry",
         json={
-            "session_id": "session-1",
+            "session_id": "session-1710000000000-abc123",
             "events": [
                 {
                     "event_name": "audio_waiting",
@@ -433,7 +433,7 @@ def test_record_playback_telemetry_unknown_generation_returns_404(test_settings)
 
     response = client.post(
         "/api/generations/999/playback-telemetry",
-        json={"session_id": "session-1", "events": [{"event_name": "audio_play", "payload": {}}]},
+        json={"session_id": "session-1710000000000-abc123", "events": [{"event_name": "audio_play", "payload": {}}]},
     )
 
     assert response.status_code == 404
@@ -448,12 +448,12 @@ def test_record_playback_telemetry_validates_batch_size(test_settings):
 
     empty = client.post(
         f"/api/generations/{generation['generation_id']}/playback-telemetry",
-        json={"session_id": "session-1", "events": []},
+        json={"session_id": "session-1710000000000-abc123", "events": []},
     )
     oversized = client.post(
         f"/api/generations/{generation['generation_id']}/playback-telemetry",
         json={
-            "session_id": "session-1",
+            "session_id": "session-1710000000000-abc123",
             "events": [{"event_name": "audio_play", "payload": {}} for _ in range(51)],
         },
     )
@@ -472,7 +472,7 @@ def test_record_playback_telemetry_drops_content_payload_keys(test_settings):
     response = client.post(
         f"/api/generations/{generation['generation_id']}/playback-telemetry",
         json={
-            "session_id": "session-1",
+            "session_id": "session-1710000000000-abc123",
             "events": [
                 {
                     "event_name": "audio_play",
@@ -504,7 +504,22 @@ def test_record_playback_telemetry_rejects_unknown_event_name(test_settings):
 
     response = client.post(
         f"/api/generations/{generation['generation_id']}/playback-telemetry",
-        json={"session_id": "session-1", "events": [{"event_name": "Secret article text", "payload": {}}]},
+        json={"session_id": "session-1710000000000-abc123", "events": [{"event_name": "Secret article text", "payload": {}}]},
+    )
+
+    assert response.status_code == 422
+
+
+def test_record_playback_telemetry_rejects_free_form_session_id(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    generation = client.post(
+        "/api/generations/text",
+        json={"text": "One.", "title": "Telemetry", "voice": "Test", "speed": 1.0, "language": "en"},
+    ).json()
+
+    response = client.post(
+        f"/api/generations/{generation['generation_id']}/playback-telemetry",
+        json={"session_id": "Secret article text", "events": [{"event_name": "audio_play", "payload": {}}]},
     )
 
     assert response.status_code == 422

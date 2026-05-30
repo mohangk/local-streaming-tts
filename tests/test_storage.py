@@ -112,7 +112,7 @@ def test_playback_telemetry_round_trip(test_settings):
 
     stored = storage.record_playback_telemetry(
         generation_id,
-        "session-1",
+        "session-1710000000000-abc123",
         [
             {
                 "event_name": "audio_waiting",
@@ -127,7 +127,7 @@ def test_playback_telemetry_round_trip(test_settings):
     assert stored == 1
     assert len(events) == 1
     assert events[0]["generation_id"] == generation_id
-    assert events[0]["session_id"] == "session-1"
+    assert events[0]["session_id"] == "session-1710000000000-abc123"
     assert events[0]["event_name"] == "audio_waiting"
     assert events[0]["segment_index"] == 0
     assert events[0]["audio_segment_id"] == audio_id
@@ -142,7 +142,7 @@ def test_playback_telemetry_requires_existing_generation(test_settings):
     with pytest.raises(KeyError):
         storage.record_playback_telemetry(
             999,
-            "session-1",
+            "session-1710000000000-abc123",
             [{"event_name": "audio_play", "payload": {}}],
         )
 
@@ -168,7 +168,7 @@ def test_playback_telemetry_requires_audio_segment_from_same_generation(test_set
     with pytest.raises(KeyError):
         storage.record_playback_telemetry(
             first_generation_id,
-            "session-1",
+            "session-1710000000000-abc123",
             [{"event_name": "audio_play", "audio_segment_id": audio_id, "payload": {}}],
         )
 
@@ -180,7 +180,7 @@ def test_playback_telemetry_drops_unknown_payload_keys(test_settings):
 
     storage.record_playback_telemetry(
         generation_id,
-        "session-1",
+        "session-1710000000000-abc123",
         [
             {
                 "event_name": "audio_play",
@@ -206,7 +206,7 @@ def test_playback_telemetry_drops_invalid_allowed_payload_values(test_settings):
 
     storage.record_playback_telemetry(
         generation_id,
-        "session-1",
+        "session-1710000000000-abc123",
         [
             {
                 "event_name": "audio_play",
@@ -235,8 +235,21 @@ def test_playback_telemetry_rejects_unknown_event_names(test_settings):
     with pytest.raises(ValueError):
         storage.record_playback_telemetry(
             generation_id,
-            "session-1",
+            "session-1710000000000-abc123",
             [{"event_name": "Secret article text", "payload": {}}],
+        )
+
+
+def test_playback_telemetry_rejects_free_form_session_id(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+
+    with pytest.raises(ValueError):
+        storage.record_playback_telemetry(
+            generation_id,
+            "Secret article text",
+            [{"event_name": "audio_play", "payload": {}}],
         )
 
 
@@ -247,7 +260,7 @@ def test_playback_telemetry_retains_newest_events_per_generation(test_settings):
 
     storage.record_playback_telemetry(
         generation_id,
-        "session-1",
+        "session-1710000000000-abc123",
         [
             {"event_name": "audio_play", "segment_index": index, "payload": {"audio_current_time": index}}
             for index in range(1005)
@@ -266,7 +279,7 @@ def test_delete_generation_cascades_playback_telemetry(test_settings):
     generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
     storage.record_playback_telemetry(
         generation_id,
-        "session-1",
+        "session-1710000000000-abc123",
         [{"event_name": "audio_play", "payload": {}}],
     )
 

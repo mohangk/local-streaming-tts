@@ -71,7 +71,7 @@ Request body:
 
 ```json
 {
-  "session_id": "client-generated-session-id",
+  "session_id": "session-1710000000000-abc123",
   "events": [
     {
       "event_name": "audio_waiting",
@@ -99,7 +99,7 @@ Response body:
 Validation rules:
 
 - Unknown `generation_id` returns `404`.
-- `session_id` is required and must be no more than `128` characters.
+- `session_id` is required and must match an app-generated opaque token shape: either a browser UUID or `session-<timestamp>-<hex>`.
 - `events` must contain at least one event and no more than `50` events per request.
 - `event_name` is required and must be no more than `80` characters.
 - `payload` must be a JSON object.

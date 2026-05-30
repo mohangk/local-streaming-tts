@@ -10,6 +10,16 @@
 
 ---
 
+## Review Hardening
+
+The implementation must enforce the content-free telemetry boundary on the server side, not only in frontend helpers. Use these additional constraints while executing the tasks below:
+
+- `session_id` must match an app-generated opaque token shape: either a browser UUID or `session-<timestamp>-<hex>`.
+- `event_name` must be one of the documented telemetry event names.
+- `payload` must be sanitized by key and value type before storage.
+- Unknown payload keys, free-form string values for enum fields, and mismatched types for boolean/numeric fields must be dropped.
+- Storage should enforce the same sanitization as the API so direct storage callers cannot bypass the content-free boundary.
+
 ## File Structure
 
 - Modify `src/tts_app/storage.py`: create telemetry table/indexes and add behavior-level storage methods.
@@ -67,7 +77,7 @@ def test_playback_telemetry_round_trip(test_settings):
 
     stored = storage.record_playback_telemetry(
         generation_id,
-        "session-1",
+        "session-1710000000000-abc123",
         [
             {
                 "event_name": "audio_waiting",
@@ -82,7 +92,7 @@ def test_playback_telemetry_round_trip(test_settings):
     assert stored == 1
     assert len(events) == 1
     assert events[0]["generation_id"] == generation_id
-    assert events[0]["session_id"] == "session-1"
+    assert events[0]["session_id"] == "session-1710000000000-abc123"
     assert events[0]["event_name"] == "audio_waiting"
     assert events[0]["segment_index"] == 0
     assert events[0]["audio_segment_id"] == audio_id
@@ -97,7 +107,7 @@ def test_playback_telemetry_requires_existing_generation(test_settings):
     with pytest.raises(KeyError):
         storage.record_playback_telemetry(
             999,
-            "session-1",
+            "session-1710000000000-abc123",
             [{"event_name": "audio_play", "payload": {}}],
         )
 
@@ -122,7 +132,7 @@ def test_playback_telemetry_requires_audio_segment_from_same_generation(test_set
     with pytest.raises(KeyError):
         storage.record_playback_telemetry(
             first_generation_id,
-            "session-1",
+            "session-1710000000000-abc123",
             [{"event_name": "audio_play", "audio_segment_id": audio_id, "payload": {}}],
         )
 
@@ -134,7 +144,7 @@ def test_playback_telemetry_retains_newest_events_per_generation(test_settings):
 
     storage.record_playback_telemetry(
         generation_id,
-        "session-1",
+        "session-1710000000000-abc123",
         [
             {"event_name": "audio_play", "segment_index": index, "payload": {"index": index}}
             for index in range(1005)
@@ -153,7 +163,7 @@ def test_delete_generation_cascades_playback_telemetry(test_settings):
     generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
     storage.record_playback_telemetry(
         generation_id,
-        "session-1",
+        "session-1710000000000-abc123",
         [{"event_name": "audio_play", "payload": {}}],
     )
 
@@ -323,7 +333,7 @@ def test_record_playback_telemetry_batch(test_settings):
     response = client.post(
         f"/api/generations/{generation_id}/playback-telemetry",
         json={
-            "session_id": "session-1",
+            "session_id": "session-1710000000000-abc123",
             "events": [
                 {
                     "event_name": "audio_waiting",
@@ -347,7 +357,7 @@ def test_record_playback_telemetry_unknown_generation_returns_404(test_settings)
 
     response = client.post(
         "/api/generations/999/playback-telemetry",
-        json={"session_id": "session-1", "events": [{"event_name": "audio_play", "payload": {}}]},
+        json={"session_id": "session-1710000000000-abc123", "events": [{"event_name": "audio_play", "payload": {}}]},
     )
 
     assert response.status_code == 404
@@ -362,12 +372,12 @@ def test_record_playback_telemetry_validates_batch_size(test_settings):
 
     empty = client.post(
         f"/api/generations/{generation['generation_id']}/playback-telemetry",
-        json={"session_id": "session-1", "events": []},
+        json={"session_id": "session-1710000000000-abc123", "events": []},
     )
     oversized = client.post(
         f"/api/generations/{generation['generation_id']}/playback-telemetry",
         json={
-            "session_id": "session-1",
+            "session_id": "session-1710000000000-abc123",
             "events": [{"event_name": "audio_play", "payload": {}} for _ in range(51)],
         },
     )
@@ -394,10 +404,17 @@ Expected: FAIL with 404 because the route does not exist.
 
 - [ ] **Step 3: Add API models**
 
-In `src/tts_app/api.py`, change the typing import:
+In `src/tts_app/api.py`, change the typing and Pydantic imports:
 
 ```python
 from typing import Any
+from pydantic import BaseModel, Field, field_validator
+```
+
+Import telemetry validation constants from storage:
+
+```python
+from tts_app.storage import PLAYBACK_TELEMETRY_EVENT_NAMES, Storage, validate_playback_telemetry_session_id
 ```
 
 Add near `ProgressRequest`:
@@ -412,10 +429,22 @@ class PlaybackTelemetryEventRequest(BaseModel):
     audio_segment_id: int | None = Field(default=None, ge=0)
     payload: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("event_name")
+    @classmethod
+    def validate_event_name(cls, value: str) -> str:
+        if value not in PLAYBACK_TELEMETRY_EVENT_NAMES:
+            raise ValueError("unsupported playback telemetry event")
+        return value
+
 
 class PlaybackTelemetryRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=128)
     events: list[PlaybackTelemetryEventRequest] = Field(min_length=1, max_length=PLAYBACK_TELEMETRY_BATCH_LIMIT)
+
+    @field_validator("session_id")
+    @classmethod
+    def validate_session_id(cls, value: str) -> str:
+        return validate_playback_telemetry_session_id(value)
 ```
 
 - [ ] **Step 4: Add API route**
@@ -534,7 +563,7 @@ describe("playbackTelemetryContext", () => {
 describe("createPlaybackTelemetry", () => {
   it("queues and flushes generation events", async () => {
     const fetchImpl = vi.fn(async () => ({ ok: true }));
-    const telemetry = createPlaybackTelemetry({ fetchImpl, sessionId: "session-1" });
+    const telemetry = createPlaybackTelemetry({ fetchImpl, sessionId: "session-1710000000000-abc123" });
 
     telemetry.record(generationState(), audio(), "audio_play", { visibility_state: "visible" });
     await telemetry.flush();
@@ -543,7 +572,7 @@ describe("createPlaybackTelemetry", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        session_id: "session-1",
+        session_id: "session-1710000000000-abc123",
         events: [
           {
             event_name: "audio_play",
@@ -561,7 +590,7 @@ describe("createPlaybackTelemetry", () => {
       fetchImpl: vi.fn(async () => {
         throw new Error("offline");
       }),
-      sessionId: "session-1",
+      sessionId: "session-1710000000000-abc123",
     });
 
     telemetry.record(generationState(), audio(), "audio_waiting");

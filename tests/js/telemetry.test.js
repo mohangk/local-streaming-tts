@@ -61,7 +61,7 @@ describe("playbackTelemetryContext", () => {
 describe("createPlaybackTelemetry", () => {
   it("queues and flushes generation events", async () => {
     const fetchImpl = vi.fn(async () => ({ ok: true }));
-    const telemetry = createPlaybackTelemetry({ fetchImpl, sessionId: "session-1" });
+    const telemetry = createPlaybackTelemetry({ fetchImpl, sessionId: "session-1710000000000-abc123" });
 
     telemetry.record(generationState(), audio(), "audio_play", { visibility_state: "visible" });
     await telemetry.flush();
@@ -72,7 +72,7 @@ describe("createPlaybackTelemetry", () => {
     expect(options.method).toBe("POST");
     expect(options.headers).toEqual({ "Content-Type": "application/json" });
     expect(JSON.parse(options.body)).toEqual({
-      session_id: "session-1",
+      session_id: "session-1710000000000-abc123",
       events: [
         {
           event_name: "audio_play",
@@ -89,7 +89,7 @@ describe("createPlaybackTelemetry", () => {
       fetchImpl: vi.fn(async () => {
         throw new Error("offline");
       }),
-      sessionId: "session-1",
+      sessionId: "session-1710000000000-abc123",
     });
 
     telemetry.record(generationState(), audio(), "audio_waiting");

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,6 +11,12 @@ from typing import Any, Iterator
 from tts_app.models import SourceType, Status
 
 PLAYBACK_TELEMETRY_RETENTION_LIMIT = 1000
+PLAYBACK_TELEMETRY_SESSION_ID_RE = re.compile(
+    r"^(?:"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+    r"|session-[0-9]{10,20}-[0-9a-f]{1,32}"
+    r")$"
+)
 PLAYBACK_TELEMETRY_EVENT_NAMES = {
     "audio_ended",
     "audio_error",
@@ -86,6 +93,12 @@ PLAYBACK_TELEMETRY_ENUM_VALUES = {
     "user_agent": {"chrome", "edge", "firefox", "safari", "unknown"},
     "visibility_state": {"hidden", "prerender", "unknown", "visible"},
 }
+
+
+def validate_playback_telemetry_session_id(session_id: str) -> str:
+    if not PLAYBACK_TELEMETRY_SESSION_ID_RE.fullmatch(session_id):
+        raise ValueError("unsupported playback telemetry session id")
+    return session_id
 
 
 class Storage:
@@ -485,6 +498,7 @@ class Storage:
         return {"last_segment_index": last_segment_index, "progress_percent": progress_percent}
 
     def record_playback_telemetry(self, generation_id: int, session_id: str, events: list[dict[str, Any]]) -> int:
+        validate_playback_telemetry_session_id(session_id)
         with self.connection() as conn:
             generation = conn.execute("SELECT id FROM generations WHERE id = ?", (generation_id,)).fetchone()
             if generation is None:
