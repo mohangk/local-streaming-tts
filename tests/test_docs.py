@@ -15,17 +15,33 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "uvicorn" in readme
     assert "model-pricing" in readme
     assert "qwen3-tts-flash-realtime" in readme
+    assert "TTS_MODEL" in readme
+    assert "remove old `QWEN_MODEL`, `QWEN_OCR_MODEL`, and `QWEN_VOICE` entries" in readme
     assert "$0.13 / 10K characters" in readme
     assert "Application Logging" in readme
     assert "tts_app.generation" in readme
     assert "Development Start" in readme
     assert "--reload-dir src" in readme
     assert "Systemd Deployment" in readme
+    assert "OCR Image Mode" in readme
+    assert "OCR_PROVIDER" in readme
+    assert "OCR_MODEL" in readme
+    assert "TTS_IMAGE_DIR" in readme
+    assert "TTS_MAX_IMAGE_BYTES" in readme
+    assert "TTS_DEFAULT_ENGLISH_VOICE" in readme
+    assert "TTS_DEFAULT_CHINESE_VOICE" in readme
+    assert "data/images/" in readme
+    assert "Voice samples" in readme
+    assert "do not create History entries" in readme
     assert "Storage" in agents
     assert "Private Proxy" in agents
     assert "setup/tts.service" in agents
     assert "Do not commit secrets" in agents
     assert "Pricing Notes" in agents
+    assert "src/tts_app/ocr_providers/" in agents
+    assert "stored images" in agents
+    assert "visible Chinese text and visible pinyin" in agents
+    assert "Do not commit secrets, API keys, stored images" in agents
 
 
 def test_systemd_setup_files_match_vps_pattern():
@@ -45,6 +61,15 @@ def test_systemd_setup_files_match_vps_pattern():
     assert "journalctl -u tts -f" in readme
     assert "TTS_PROVIDER=qwen" in env_example
     assert "DASHSCOPE_API_KEY=" in env_example
+    assert "TTS_MODEL=qwen3-tts-flash-realtime" in env_example
+    assert "OCR_PROVIDER=qwen" in env_example
+    assert "OCR_MODEL=qwen-vl-ocr" in env_example
+    assert "TTS_DEFAULT_ENGLISH_VOICE=Jennifer" in env_example
+    assert "TTS_DEFAULT_CHINESE_VOICE=Cherry" in env_example
+    assert "QWEN_MODEL=" not in env_example
+    assert "QWEN_OCR_MODEL=" not in env_example
+    assert "QWEN_VOICE=" not in env_example
+    assert "remove old" in env_example
     assert "setup/install-service.sh" in readme
     assert "setup/setup-venv.sh" in readme
     assert "DASHSCOPE_API_KEY" in install_script
