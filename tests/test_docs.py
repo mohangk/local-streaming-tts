@@ -28,6 +28,9 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "name = \"readvox\"" in pyproject
     assert "Qwen" in readme
     assert "pytest" in readme
+    assert "npm run test:js" in readme
+    assert "npm run test:js" in agents
+    assert "npm run test:js" in architecture
     assert "uvicorn" in readme
     assert "model-pricing" in readme
     assert "qwen3-tts-flash-realtime" in readme
