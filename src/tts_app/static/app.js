@@ -27,15 +27,18 @@ import {
   voiceSelect,
   voiceStar,
   views,
-} from "./dom.js?v=playback-vitest-1";
-import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=playback-vitest-1";
+} from "./dom.js?v=playback-telemetry-1";
+import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=playback-telemetry-1";
 import {
   buildProgressPayload,
   chooseResumeSegmentIndex,
   endedPlaybackAction,
-} from "./playback.js?v=playback-vitest-1";
-import { state } from "./state.js?v=playback-vitest-1";
-import { escapeHtml, formatSpeed, withButtonBusy } from "./utils.js?v=playback-vitest-1";
+} from "./playback.js?v=playback-telemetry-1";
+import { state } from "./state.js?v=playback-telemetry-1";
+import { createPlaybackTelemetry } from "./telemetry.js?v=playback-telemetry-1";
+import { escapeHtml, formatSpeed, withButtonBusy } from "./utils.js?v=playback-telemetry-1";
+
+const playbackTelemetry = createPlaybackTelemetry();
 
 function showView(viewId) {
   views.forEach((view) => {
@@ -80,6 +83,12 @@ function languageLabel(language) {
 
 function voiceMatchesLanguage(voice, language) {
   return !voice.language || voice.language === language;
+}
+
+function recordPlaybackTelemetry(eventName, payload = {}) {
+  if (playbackTelemetry.record(state, audioPlayer, eventName, payload)) {
+    playbackTelemetry.flush();
+  }
 }
 
 function selectedVoiceOption() {
@@ -283,8 +292,10 @@ async function acquireWakeLock() {
     state.wakeLock.addEventListener("release", () => {
       state.wakeLock = null;
     });
+    recordPlaybackTelemetry("wake_lock_acquired");
   } catch {
     state.wakeLock = null;
+    recordPlaybackTelemetry("wake_lock_failed");
   }
 }
 
@@ -293,6 +304,7 @@ function releaseWakeLock() {
     return;
   }
   const lock = state.wakeLock;
+  recordPlaybackTelemetry("wake_lock_released");
   state.wakeLock = null;
   lock.release().catch(() => {});
 }
@@ -378,6 +390,12 @@ async function openGeneration(generationId, options = {}) {
       closeEventSource();
     }
     const loaded = await loadGenerationDetail(generationId);
+    if (loaded) {
+      recordPlaybackTelemetry("generation_opened", {
+        platform: navigator.platform || "",
+        user_agent: navigator.userAgent || "",
+      });
+    }
     if (loaded && state.autoplay) {
       playSegment(state.currentSegmentIndex);
     }
@@ -441,6 +459,7 @@ function stopPlayback() {
 }
 
 function handleEventSourceError() {
+  recordPlaybackTelemetry("event_source_error");
   playerStatus.textContent = "Live updates disconnected";
   if (state.eventSource) {
     state.eventSource.close();
@@ -538,6 +557,7 @@ function playSegment(segmentIndex) {
   state.currentSegmentIndex = segmentIndex;
   updateActiveSegment();
   updatePlayerStatus();
+  recordPlaybackTelemetry("segment_play_attempted");
 
   if (!audio || !state.currentGenerationId) {
     return;
@@ -555,6 +575,7 @@ async function saveProgress(segmentIndex, options = {}) {
     return;
   }
   try {
+    recordPlaybackTelemetry("progress_save_attempted", buildProgressPayload(segmentIndex, options));
     const response = await fetch(`/api/generations/${state.currentGenerationId}/progress`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -564,8 +585,13 @@ async function saveProgress(segmentIndex, options = {}) {
       const progress = await response.json();
       state.currentDetail.generation.last_segment_index = progress.last_segment_index;
       state.currentDetail.generation.progress_percent = progress.progress_percent;
+      recordPlaybackTelemetry("progress_save_succeeded", {
+        last_segment_index: progress.last_segment_index,
+        progress_percent: progress.progress_percent,
+      });
     }
   } catch {
+    recordPlaybackTelemetry("progress_save_failed");
     // Playback should continue even if progress cannot be saved.
   }
 }
@@ -672,10 +698,12 @@ voiceSample.addEventListener("click", playVoiceSample);
 audioPlayer.addEventListener("play", () => {
   playPauseButton.textContent = "Pause";
   acquireWakeLock();
+  recordPlaybackTelemetry("audio_play");
 });
 
 audioPlayer.addEventListener("pause", () => {
   playPauseButton.textContent = "Play";
+  recordPlaybackTelemetry("audio_pause");
   releaseWakeLock();
 });
 
@@ -686,6 +714,8 @@ audioPlayer.addEventListener("ended", () => {
     currentSegmentIndex: state.currentSegmentIndex,
     totalSegments: state.currentDetail?.text_segments.length || 0,
   });
+  recordPlaybackTelemetry("audio_ended");
+  recordPlaybackTelemetry("playback_ended_action", action);
 
   if (action.type === "clear-sample") {
     audioPlayer.pause();
@@ -709,11 +739,27 @@ audioPlayer.addEventListener("ended", () => {
   releaseWakeLock();
 });
 
+audioPlayer.addEventListener("waiting", () => recordPlaybackTelemetry("audio_waiting"));
+audioPlayer.addEventListener("stalled", () => recordPlaybackTelemetry("audio_stalled"));
+audioPlayer.addEventListener("suspend", () => recordPlaybackTelemetry("audio_suspend"));
+audioPlayer.addEventListener("error", () =>
+  recordPlaybackTelemetry("audio_error", { error_code: audioPlayer.error?.code ?? null }),
+);
+
 document.addEventListener("visibilitychange", () => {
+  recordPlaybackTelemetry("visibility_changed", {
+    visibility_state: document.visibilityState,
+    document_hidden: document.hidden,
+  });
   if (document.visibilityState === "visible" && !audioPlayer.paused) {
     acquireWakeLock();
   }
 });
+
+window.addEventListener("pagehide", () => recordPlaybackTelemetry("page_hidden"));
+window.addEventListener("pageshow", () => recordPlaybackTelemetry("page_shown"));
+document.addEventListener("freeze", () => recordPlaybackTelemetry("page_frozen"));
+document.addEventListener("resume", () => recordPlaybackTelemetry("page_resumed"));
 
 initOcr({
   setInputMode,

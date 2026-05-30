@@ -7,7 +7,7 @@ from pathlib import Path
 
 STATIC_DIR = Path("src/tts_app/static")
 PYPROJECT = Path("pyproject.toml")
-JS_FILES = ("app.js", "ocr.js", "playback.js", "state.js", "dom.js", "utils.js")
+JS_FILES = ("app.js", "ocr.js", "playback.js", "telemetry.js", "state.js", "dom.js", "utils.js")
 
 
 def frontend_js() -> str:
@@ -65,6 +65,39 @@ def test_frontend_static_asset_version_bumped_for_playback_module():
     assert "ocr-generate-fix-1" not in html
     assert "ocr-generate-fix-1" not in app_js
     assert "ocr-generate-fix-1" not in ocr_js
+
+
+def test_frontend_imports_playback_telemetry_module():
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    telemetry_js = (STATIC_DIR / "telemetry.js").read_text(encoding="utf-8")
+
+    assert 'from "./telemetry.js?v=' in app_js
+    assert "createPlaybackTelemetry" in app_js
+    assert "playbackTelemetry.record" in app_js
+    assert "playbackTelemetry.flush" in app_js
+    assert "export function createPlaybackTelemetry" in telemetry_js
+
+
+def test_frontend_voice_sample_path_does_not_record_playback_telemetry():
+    js = frontend_js()
+    sampler = js.split("async function playVoiceSample()", 1)[1].split("async function loadHistory()", 1)[0]
+
+    assert "playbackTelemetry.record" not in sampler
+    assert "state.samplePlayback = true" in sampler
+
+
+def test_frontend_static_asset_version_bumped_for_playback_telemetry():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    ocr_js = (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
+
+    assert 'href="/static/styles.css?v=playback-telemetry-1"' in html
+    assert 'src="/static/app.js?v=playback-telemetry-1"' in html
+    assert "?v=playback-telemetry-1" in app_js
+    assert "?v=playback-telemetry-1" in ocr_js
+    assert "playback-vitest-1" not in html
+    assert "playback-vitest-1" not in app_js
+    assert "playback-vitest-1" not in ocr_js
 
 
 def test_frontend_javascript_uses_history_and_event_endpoints():
