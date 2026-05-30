@@ -1,13 +1,13 @@
 # Readvox Architecture
 
-Readvox is a local-first FastAPI app for turning text, URLs, and reviewed OCR drafts into streamed text-to-speech audio. It should stay small enough to run as one localhost service, but its internals should be split by responsibility so new input workflows do not turn into one large route file, one storage method pile, or one monolithic JavaScript file.
+Readvox is a local-first FastAPI app for turning text, URLs, reviewed drafts, and future input sources into streamed text-to-speech audio. It should stay small enough to run as one localhost service, but its internals should be split by responsibility so new workflows do not turn into one large route file, one storage method pile, or one monolithic JavaScript file.
 
 ## Core Principles
 
 - Keep the app local-first: one FastAPI process, one SQLite database, one data directory, and optional private HTTPS proxy access for trusted devices.
 - Keep external paid services behind provider interfaces with deterministic fake providers for tests and local UI checks.
 - Treat stored user data as durable. Do not remove stored images, generated audio, cached smoke-test artifacts, or local data files unless the user explicitly asks or an app deletion flow is being exercised.
-- Preserve the behavior distinction between client state and backend persistence. Clearing a frontend draft state must not imply deleting backend OCR data unless the user invokes a deletion flow.
+- Preserve the behavior distinction between client state and backend persistence. Clearing frontend state must not imply deleting backend data unless the user invokes a deletion flow.
 - Prefer focused vertical slices: provider/config, storage, route/API, frontend state/UI, then docs and tests.
 - Add tests at the layer that owns the behavior. Storage tests cover persistence and cleanup; API tests cover contracts and failure status; frontend static tests cover DOM wiring and browser state transitions.
 
@@ -17,7 +17,7 @@ FastAPI serves both the API and static frontend. The default deployment binds pl
 
 Durable data is split between SQLite and the filesystem:
 
-- SQLite stores generations, text segments, audio segment metadata, provider settings, playback progress, OCR drafts, and OCR image metadata.
+- SQLite stores generations, text segments, audio segment metadata, provider settings, playback progress, workflow drafts, and source-asset metadata.
 - Audio files are cached under `data/audio/<generation_id>/`.
 - OCR images are stored under `data/images/<ocr_draft_id>/<ocr_draft_image_id>/`.
 
@@ -44,26 +44,32 @@ Storage methods should expose behavior-level operations, not raw table manipulat
 
 - create a generation with text segments
 - record an audio segment
-- create or append OCR draft images
-- rebuild OCR draft combined text
-- link an OCR draft to a generation
-- delete unlinked OCR drafts
-- force-delete OCR drafts during generation deletion
+- create or append workflow draft source assets
+- rebuild a draft's reviewed source text from child assets when appropriate
+- link a workflow draft to a generation
+- delete unlinked drafts
+- force-delete linked drafts during generation deletion
 
-As OCR and future workflows grow, split storage internals into helper modules or mixins while preserving the public `Storage` API used by routes and tests. `tests/test_ocr_storage.py` is the acceptance surface for an OCR storage split.
+As workflows grow, split storage internals into helper modules or mixins while preserving the public `Storage` API used by routes and tests. Workflow-specific storage tests, such as `tests/test_ocr_storage.py`, are the acceptance surface for storage splits.
 
-## OCR Workflow
+## Drafts And Linked Artifacts
 
-OCR drafts are separate from generations until the user creates audio. This separation is intentional:
+Some workflows need intermediate user review before they become a durable audio generation. Model those workflows as drafts that are separate from generations until the user explicitly creates audio. This separation is intentional:
 
-- An OCR draft is a reviewable document assembled from ordered source images.
-- `ocr_drafts.combined_text` is the editable source of truth for audio generation.
+- A draft is a reviewable source document assembled from one or more user-provided or provider-derived assets.
+- The draft stores editable reviewed text that becomes the source of truth for audio generation.
+- Child asset rows preserve raw provider output, source file metadata, retry state, and diagnostics.
+- Creating audio stores the reviewed text as generation `full_text`, records workflow-specific settings, and links the draft to the generation.
+
+Linked drafts should disappear from active draft-picking surfaces because their user-facing recovery path is History. They should not be deleted by frontend state reset. Linked draft and stored source-asset cleanup belongs to generation deletion from History.
+
+OCR is the current example of this model:
+
+- OCR drafts are assembled from ordered source images.
+- `ocr_drafts.combined_text` is the reviewed source of truth for audio generation.
 - `ocr_draft_images.extracted_text` preserves raw per-image OCR output for retry, delete, and diagnostics.
-- Creating audio sets `source_type = image`, stores the reviewed text as generation `full_text`, and links the draft to the generation.
-
-Linked OCR drafts should disappear from Generate > Image and Generate > Draft Images because their user-facing recovery path is History. They should not be deleted by frontend state reset. Linked OCR draft and stored image cleanup belongs to image generation deletion from History.
-
-For Chinese OCR, preserve only visible Chinese text and visible pinyin. Do not generate missing pinyin, transliterate Chinese characters into pinyin, translate, summarize, or infer text that is not visible in the image.
+- Creating image audio sets `source_type = image` and links the draft to the generation.
+- For Chinese OCR, preserve only visible Chinese text and visible pinyin. Do not generate missing pinyin, transliterate Chinese characters into pinyin, translate, summarize, or infer text that is not visible in the image.
 
 ## Frontend Direction
 
@@ -128,3 +134,9 @@ For new workflows, use this order unless there is a concrete reason not to:
 6. Full verification and a logical commit series.
 
 Commit history should tell the same story as the architecture: tooling/config, provider boundary, storage, API, frontend, then documentation cleanup when needed. Fold review-fix commits into the relevant layer before merging when practical.
+
+## Architecture Review
+
+After every non-trivial change, run an architecture review against this document before merging or pushing to `main`. The review should look for boundary drift, accidental data-loss paths, provider calls leaking outside adapters, frontend monolith growth, missing focused tests, and commit history that hides architectural decisions.
+
+Use `docs/architecture-review-subagent.md` as the review prompt. Treat findings as code review comments: fix high-risk issues before merge, document intentional exceptions, and keep the review focused on project architecture rather than style preferences.

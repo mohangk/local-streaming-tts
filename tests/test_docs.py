@@ -7,6 +7,7 @@ def test_handoff_docs_exist_and_cover_local_operations():
     readme = Path("README.md").read_text(encoding="utf-8")
     agents = Path("AGENTS.md").read_text(encoding="utf-8")
     architecture = Path("docs/architecture.md").read_text(encoding="utf-8")
+    architecture_reviewer = Path("docs/architecture-review-subagent.md").read_text(encoding="utf-8")
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert "# Readvox" in readme
@@ -38,8 +39,10 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "provider interfaces" in architecture
     assert "SQLite" in architecture
     assert "filesystem" in architecture
-    assert "OCR drafts are separate from generations" in architecture
-    assert "Linked OCR drafts should disappear from Generate > Image" in architecture
+    assert "Drafts And Linked Artifacts" in architecture
+    assert "workflow drafts" in architecture
+    assert "Linked drafts should disappear from active draft-picking surfaces" in architecture
+    assert "OCR is the current example of this model" in architecture
     assert "visible Chinese text and visible pinyin" in architecture
     assert "Future modularization should split `app.js` further" in architecture
     assert "history.js" in architecture
@@ -49,7 +52,16 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "api-client.js" in architecture
     assert "forward migrations" in architecture
     assert "fake implementation" in architecture
+    assert "Architecture Review" in architecture
+    assert "docs/architecture-review-subagent.md" in architecture
+    assert "# Architecture Review Subagent" in architecture_reviewer
+    assert "Review the current diff against `docs/architecture.md`" in architecture_reviewer
+    assert "Provider boundaries" in architecture_reviewer
+    assert "Drafts and linked artifacts" in architecture_reviewer
+    assert "Frontend modularity" in architecture_reviewer
+    assert "Output format" in architecture_reviewer
     assert "docs/architecture.md" in agents
+    assert "docs/architecture-review-subagent.md" in agents
     assert "Storage" in agents
     assert "Private Proxy" in agents
     assert "setup/tts.service" in agents

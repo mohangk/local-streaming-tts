@@ -70,5 +70,6 @@ The app currently uses `qwen3-tts-flash-realtime` by default. Alibaba Cloud Mode
 ## Development Rules
 
 - Follow `docs/architecture.md` for module boundaries, schema migration style, provider boundaries, frontend modularization, and future feature sequencing.
+- After every non-trivial change, run or simulate the architecture review in `docs/architecture-review-subagent.md` before merging or pushing to `main`.
 - Treat the same text or URL with a different voice or speed as a separate generation.
 - Preserve unrelated untracked files such as `.codex` or smoke-test artifacts unless the user asks otherwise.
