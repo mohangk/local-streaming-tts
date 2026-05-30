@@ -363,6 +363,58 @@ def test_audio_endpoint_rejects_cross_generation_segment(test_settings):
     assert response.status_code == 404
 
 
+def test_continuous_audio_endpoint_streams_without_fixed_length(test_settings):
+    app = create_app(settings=replace(test_settings, segment_max_chars=20), run_background_inline=True)
+    client = TestClient(app)
+    generation_id = client.post(
+        "/api/generations/text",
+        json={"text": "Alpha beta. Gamma delta.", "title": "Note"},
+    ).json()["generation_id"]
+
+    response = client.get(f"/api/generations/{generation_id}/continuous-audio?start_segment=0")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/mpeg")
+    assert response.headers["cache-control"] == "no-store"
+    assert "content-length" not in response.headers
+    assert response.content.count(b"FAKE-TTS") >= 2
+
+
+def test_continuous_audio_endpoint_rejects_unready_start_segment(test_settings):
+    app = create_app(settings=test_settings)
+    storage = app.state.storage
+    generation_id = storage.create_generation(
+        "text",
+        "Note",
+        None,
+        "Alpha beta. Gamma delta.",
+        "fake",
+        "Fake English",
+        {"speed": 1.0, "language": "en"},
+    )
+    storage.create_text_segments(generation_id, ["Alpha beta.", "Gamma delta."])
+    client = TestClient(app)
+
+    response = client.get(f"/api/generations/{generation_id}/continuous-audio?start_segment=1")
+
+    assert response.status_code == 409
+
+
+def test_continuous_audio_endpoint_rejects_missing_segment_file(test_settings):
+    app = create_app(settings=test_settings, run_background_inline=True)
+    client = TestClient(app)
+    generation_id = client.post("/api/generations/text", json={"text": "Hello world.", "title": "Note"}).json()[
+        "generation_id"
+    ]
+    detail = client.get(f"/api/generations/{generation_id}").json()
+    (test_settings.data_dir / detail["audio_segments"][0]["file_path"]).unlink()
+    (test_settings.data_dir / "audio" / str(generation_id) / "full.mp3").unlink()
+
+    response = client.get(f"/api/generations/{generation_id}/continuous-audio?start_segment=0")
+
+    assert response.status_code == 409
+
+
 def test_delete_generation_removes_history_and_audio_files(test_settings):
     app = create_app(settings=test_settings, run_background_inline=True)
     client = TestClient(app)

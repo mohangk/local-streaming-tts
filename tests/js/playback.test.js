@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildProgressPayload,
   chooseResumeSegmentIndex,
+  continuousAudioUrl,
   endedPlaybackAction,
 } from "../../src/tts_app/static/playback.js";
 
@@ -29,6 +30,12 @@ describe("buildProgressPayload", () => {
   });
 });
 
+describe("continuousAudioUrl", () => {
+  it("builds a stable continuous playback URL from a generation and segment", () => {
+    expect(continuousAudioUrl(36, 25)).toBe("/api/generations/36/continuous-audio?start_segment=25");
+  });
+});
+
 describe("endedPlaybackAction", () => {
   it("clears sample playback without saving generation progress", () => {
     expect(
@@ -41,15 +48,28 @@ describe("endedPlaybackAction", () => {
     ).toEqual({ type: "clear-sample" });
   });
 
-  it("continues to the next segment during continuous generation playback", () => {
+  it("marks generation progress complete when a continuous stream ends", () => {
     expect(
       endedPlaybackAction({
         samplePlayback: false,
         continuousPlayback: true,
+        generationStatus: "completed",
         currentSegmentIndex: 0,
         totalSegments: 3,
       }),
-    ).toEqual({ type: "play-next", segmentIndex: 1 });
+    ).toEqual({ type: "complete", segmentIndex: 2 });
+  });
+
+  it("does not mark progress complete when a failed continuous stream ends", () => {
+    expect(
+      endedPlaybackAction({
+        samplePlayback: false,
+        continuousPlayback: true,
+        generationStatus: "failed",
+        currentSegmentIndex: 0,
+        totalSegments: 3,
+      }),
+    ).toEqual({ type: "stop" });
   });
 
   it("marks progress completed only at the final generation segment", () => {

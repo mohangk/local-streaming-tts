@@ -19,14 +19,23 @@ export function buildProgressPayload(segmentIndex, options = {}) {
   };
 }
 
-export function endedPlaybackAction({ samplePlayback, continuousPlayback, currentSegmentIndex, totalSegments }) {
+export function continuousAudioUrl(generationId, segmentIndex) {
+  return `/api/generations/${generationId}/continuous-audio?start_segment=${segmentIndex}`;
+}
+
+export function endedPlaybackAction({
+  samplePlayback,
+  continuousPlayback,
+  generationStatus,
+  currentSegmentIndex,
+  totalSegments,
+}) {
   if (samplePlayback) {
     return { type: "clear-sample" };
   }
 
-  const nextIndex = currentSegmentIndex + 1;
-  if (continuousPlayback && nextIndex < totalSegments) {
-    return { type: "play-next", segmentIndex: nextIndex };
+  if (continuousPlayback && totalSegments > 0 && generationStatus === "completed") {
+    return { type: "complete", segmentIndex: totalSegments - 1 };
   }
 
   if (totalSegments > 0 && currentSegmentIndex >= totalSegments - 1) {

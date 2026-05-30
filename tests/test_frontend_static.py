@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 STATIC_DIR = Path("src/tts_app/static")
+SRC_DIR = Path("src/tts_app")
 PYPROJECT = Path("pyproject.toml")
 JS_FILES = ("app.js", "ocr.js", "playback.js", "telemetry.js", "state.js", "dom.js", "utils.js")
 
@@ -72,15 +73,15 @@ def test_frontend_voice_sample_path_does_not_record_playback_telemetry():
     assert "state.samplePlayback = true" in sampler
 
 
-def test_frontend_static_asset_version_bumped_for_playback_telemetry():
+def test_frontend_static_asset_version_bumped_for_continuous_playback():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     ocr_js = (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
 
-    assert 'href="/static/styles.css?v=playback-telemetry-1"' in html
-    assert 'src="/static/app.js?v=playback-telemetry-1"' in html
-    assert "?v=playback-telemetry-1" in app_js
-    assert "?v=playback-telemetry-1" in ocr_js
+    assert 'href="/static/styles.css?v=continuous-playback-1"' in html
+    assert 'src="/static/app.js?v=continuous-playback-1"' in html
+    assert "?v=continuous-playback-1" in app_js
+    assert "?v=continuous-playback-1" in ocr_js
     assert "playback-vitest-1" not in html
     assert "playback-vitest-1" not in app_js
     assert "playback-vitest-1" not in ocr_js
@@ -418,7 +419,7 @@ def test_frontend_voice_sample_revokes_object_urls():
 def test_frontend_ended_handler_skips_generation_progress_for_samples():
     js = frontend_js()
     handler = js.split('audioPlayer.addEventListener("ended"', 1)[1].split("document.addEventListener", 1)[0]
-    sample_branch = handler.split('if (action.type === "play-next")', 1)[0]
+    sample_branch = handler.split('if (action.type === "complete")', 1)[0]
 
     assert "endedPlaybackAction({" in handler
     assert "samplePlayback: state.samplePlayback" in handler
@@ -433,8 +434,27 @@ def test_frontend_javascript_ended_handler_respects_continuous_playback():
     handler = js.split('audioPlayer.addEventListener("ended"', 1)[1].split("loadHistory();", 1)[0]
 
     assert "continuousPlayback: state.continuousPlayback" in handler
-    assert 'action.type === "play-next"' in handler
-    assert "playSegment(action.segmentIndex)" in handler
+    assert "generationStatus: state.currentDetail?.generation.status" in handler
+    assert 'action.type === "play-next"' not in handler
+    assert "playSegment(action.segmentIndex)" not in handler
+
+
+def test_frontend_generated_playback_uses_continuous_audio_endpoint():
+    js = frontend_js()
+    play_segment = js.split("function playSegment(segmentIndex)", 1)[1].split("async function saveProgress", 1)[0]
+
+    assert "continuousAudioUrl" in js
+    assert "audioPlayer.src = continuousAudioUrl(state.currentGenerationId, segmentIndex)" in play_segment
+    assert "audioPlayer.src = `/api/audio/" not in play_segment
+
+
+def test_continuous_audio_route_lives_outside_app_factory():
+    api_py = (SRC_DIR / "api.py").read_text(encoding="utf-8")
+    playback_py = (SRC_DIR / "routes" / "playback.py").read_text(encoding="utf-8")
+
+    assert "create_playback_router" in api_py
+    assert "continuous-audio" not in api_py
+    assert "continuous-audio" in playback_py
 
 
 def test_frontend_user_started_history_playback_continues_between_segments():

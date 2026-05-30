@@ -25,6 +25,7 @@ PLAYBACK_TELEMETRY_EVENT_NAMES = {
     "audio_stalled",
     "audio_suspend",
     "audio_waiting",
+    "continuous_audio_selected",
     "event_source_error",
     "generation_opened",
     "page_frozen",

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -21,6 +21,7 @@ from tts_app.providers.base import TTSOptions
 from tts_app.providers.options import SelectOption
 from tts_app.providers.registry import get_provider
 from tts_app.routes.ocr import create_ocr_router
+from tts_app.routes.playback import create_playback_router
 from tts_app.routes.shared import schedule_generation
 from tts_app.storage import PLAYBACK_TELEMETRY_EVENT_NAMES, Storage, validate_playback_telemetry_session_id
 
@@ -126,6 +127,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     app.state.broker = broker
     app.state.service = service
     app.state.ocr_provider = ocr_provider
+    app.include_router(create_playback_router(settings=active_settings, storage=storage, service=service))
     app.include_router(
         create_ocr_router(
             settings=active_settings,
@@ -331,17 +333,6 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             storage.force_delete_ocr_draft(linked_ocr_draft["id"])
         logger.info("generation_deleted generation_id=%s", generation_id)
         return Response(status_code=204)
-
-    @app.get("/api/audio/{generation_id}/{audio_segment_id}")
-    async def get_audio(generation_id: int, audio_segment_id: int):
-        try:
-            audio = storage.get_audio_segment(generation_id, audio_segment_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail="audio not found") from exc
-        path = active_settings.data_dir / audio["file_path"]
-        if not path.exists():
-            raise HTTPException(status_code=404, detail="audio file not found")
-        return FileResponse(path, media_type=audio["mime_type"], stat_result=path.stat())
 
     @app.get("/api/generations/{generation_id}/events")
     async def generation_events(generation_id: int):

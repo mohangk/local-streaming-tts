@@ -27,16 +27,17 @@ import {
   voiceSelect,
   voiceStar,
   views,
-} from "./dom.js?v=playback-telemetry-1";
-import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=playback-telemetry-1";
+} from "./dom.js?v=continuous-playback-1";
+import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=continuous-playback-1";
 import {
   buildProgressPayload,
   chooseResumeSegmentIndex,
+  continuousAudioUrl,
   endedPlaybackAction,
-} from "./playback.js?v=playback-telemetry-1";
-import { state } from "./state.js?v=playback-telemetry-1";
-import { createPlaybackTelemetry } from "./telemetry.js?v=playback-telemetry-1";
-import { escapeHtml, formatSpeed, withButtonBusy } from "./utils.js?v=playback-telemetry-1";
+} from "./playback.js?v=continuous-playback-1";
+import { state } from "./state.js?v=continuous-playback-1";
+import { createPlaybackTelemetry } from "./telemetry.js?v=continuous-playback-1";
+import { escapeHtml, formatSpeed, withButtonBusy } from "./utils.js?v=continuous-playback-1";
 
 const playbackTelemetry = createPlaybackTelemetry();
 
@@ -602,7 +603,8 @@ function playSegment(segmentIndex) {
     return;
   }
 
-  audioPlayer.src = `/api/audio/${state.currentGenerationId}/${audio.id}`;
+  audioPlayer.src = continuousAudioUrl(state.currentGenerationId, segmentIndex);
+  recordPlaybackTelemetry("continuous_audio_selected");
   saveProgress(segmentIndex);
   audioPlayer.play().catch(() => {
     playerStatus.textContent = "Tap Play to start audio";
@@ -756,6 +758,7 @@ audioPlayer.addEventListener("ended", () => {
   const action = endedPlaybackAction({
     samplePlayback: state.samplePlayback,
     continuousPlayback: state.continuousPlayback,
+    generationStatus: state.currentDetail?.generation.status,
     currentSegmentIndex: state.currentSegmentIndex,
     totalSegments: state.currentDetail?.text_segments.length || 0,
   });
@@ -768,11 +771,6 @@ audioPlayer.addEventListener("ended", () => {
     audioPlayer.load();
     clearSamplePlayback();
     releaseWakeLock();
-    return;
-  }
-
-  if (action.type === "play-next") {
-    playSegment(action.segmentIndex);
     return;
   }
 
