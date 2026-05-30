@@ -4,7 +4,7 @@
 
 **Goal:** Add Vitest/jsdom and extract existing playback/progress decision logic from `app.js` into a small tested module without adding telemetry behavior.
 
-**Architecture:** Keep `app.js` as the browser orchestrator for now. Create `src/tts_app/static/playback.js` for pure playback/progress decisions that can be tested without a real audio element or FastAPI server. Preserve current playback behavior while establishing the first modular frontend testing slice described in `docs/architecture.md`.
+**Architecture:** Keep `app.js` as the browser orchestrator for now. Create `src/tts_app/static/playback.js` for pure playback/progress decisions that can be tested without a real audio element or FastAPI server. Preserve current playback behavior while establishing the first modular frontend testing slice described in `docs/architecture.md`; the later telemetry feature will use this foundation to diagnose mobile/background long-article playback stops.
 
 **Tech Stack:** Vanilla ES modules, Vitest, jsdom, existing ESLint flat config, pytest docs/static tests.
 
@@ -21,6 +21,10 @@
 - Modify `tests/test_docs.py`: pin `npm run test:js` in architecture/docs verification guidance if needed.
 - Modify `docs/architecture.md`: add `npm run test:js` to standard verification commands after Vitest lands.
 - Modify `docs/superpowers/specs/2026-05-30-playback-telemetry-frontend-testing.md`: already updated to separate refactor from telemetry; only touch if implementation details change.
+
+## Telemetry Context For This Refactor
+
+Do not implement telemetry in this plan. The later feature exists to diagnose why long article playback sometimes stops when a mobile browser backgrounds Readvox. This plan only makes the current playback decisions testable so the telemetry implementation can distinguish generation playback from voice samples, current segment from completion, and progress-saving decisions from audio element lifecycle events.
 
 ## Task 1: Add Vitest Script And Empty Harness
 
