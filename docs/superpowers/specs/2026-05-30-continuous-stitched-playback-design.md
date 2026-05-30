@@ -44,6 +44,35 @@ Pointing `<audio>` directly at `/data/audio/<generation_id>/full.mp3` while it i
 
 The continuous endpoint can intentionally tail the growing artifact and decide when to wait, when to end, and when to serve the completed file with normal range semantics.
 
+The distinction is:
+
+- `full.mp3` is the cached byte artifact. It is useful storage, and after completion it becomes the durable audio file for future playback.
+- `/api/generations/{generation_id}/continuous-audio` is the playback controller. During generation it streams bytes from `full.mp3`, waits when it reaches the current end of the file, and only closes when the generation is complete or the client disconnects.
+
+This prevents the browser from treating a temporary artifact size as the final media length. The browser still gets one stable audio URL, but the backend controls whether current EOF means "wait for more generated audio" or "the generation is actually complete."
+
+The response shape is different in the two cases:
+
+```text
+Static half-written full.mp3 response:
+HTTP/1.1 200 OK
+Content-Type: audio/mpeg
+Content-Length: 443275
+Accept-Ranges: bytes
+```
+
+In this case, `Content-Length` is the file size when the request starts. If more bytes are appended later, the browser may still consider `443275` bytes to be the complete media response. Range requests can also be based on that observed size.
+
+```text
+Continuous endpoint while generation is still running:
+HTTP/1.1 200 OK
+Content-Type: audio/mpeg
+Transfer-Encoding: chunked
+Cache-Control: no-store
+```
+
+In this case, there is no fixed `Content-Length` while the artifact is still growing. The server can yield available chunks, wait at the current artifact end, then yield more chunks after new segments are appended. Once the generation is complete, the same endpoint can use completed-file behavior with `Content-Length` and range support because the final size is stable.
+
 ## Data Model
 
 Add SQLite metadata in a `continuous_audio_artifacts` table:
