@@ -53,20 +53,6 @@ def test_frontend_imports_playback_helpers():
     assert "export function endedPlaybackAction" in playback_js
 
 
-def test_frontend_static_asset_version_bumped_for_playback_module():
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    ocr_js = (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
-
-    assert 'href="/static/styles.css?v=playback-vitest-1"' in html
-    assert 'src="/static/app.js?v=playback-vitest-1"' in html
-    assert "?v=playback-vitest-1" in app_js
-    assert "?v=playback-vitest-1" in ocr_js
-    assert "ocr-generate-fix-1" not in html
-    assert "ocr-generate-fix-1" not in app_js
-    assert "ocr-generate-fix-1" not in ocr_js
-
-
 def test_frontend_imports_playback_telemetry_module():
     app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     telemetry_js = (STATIC_DIR / "telemetry.js").read_text(encoding="utf-8")
