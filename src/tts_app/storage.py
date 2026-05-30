@@ -9,6 +9,29 @@ from typing import Any, Iterator
 from tts_app.models import SourceType, Status
 
 PLAYBACK_TELEMETRY_RETENTION_LIMIT = 1000
+PLAYBACK_TELEMETRY_PAYLOAD_KEYS = {
+    "audio_current_time",
+    "audio_duration",
+    "audio_ended",
+    "audio_network_state",
+    "audio_paused",
+    "audio_ready_state",
+    "autoplay",
+    "completed",
+    "continuous_playback",
+    "document_hidden",
+    "error_code",
+    "event_source_ready_state",
+    "last_segment_index",
+    "platform",
+    "progress_percent",
+    "segmentIndex",
+    "segment_index",
+    "type",
+    "user_agent",
+    "visibility_state",
+    "wake_lock_active",
+}
 
 
 class Storage:
@@ -439,7 +462,7 @@ class Storage:
                     str(event["event_name"]),
                     event.get("segment_index"),
                     event.get("audio_segment_id"),
-                    json.dumps(event.get("payload", {})),
+                    json.dumps(self._playback_telemetry_payload(event.get("payload", {}))),
                 )
                 for event in events
             ]
@@ -466,6 +489,9 @@ class Storage:
                 (generation_id, generation_id, PLAYBACK_TELEMETRY_RETENTION_LIMIT),
             )
         return len(events)
+
+    def _playback_telemetry_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in payload.items() if key in PLAYBACK_TELEMETRY_PAYLOAD_KEYS}
 
     def list_playback_telemetry_events(self, generation_id: int) -> list[dict[str, Any]]:
         with self.connection() as conn:

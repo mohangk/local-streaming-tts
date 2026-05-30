@@ -173,6 +173,32 @@ def test_playback_telemetry_requires_audio_segment_from_same_generation(test_set
         )
 
 
+def test_playback_telemetry_drops_unknown_payload_keys(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "Secret article text", "fake", "Test", {})
+
+    storage.record_playback_telemetry(
+        generation_id,
+        "session-1",
+        [
+            {
+                "event_name": "audio_play",
+                "payload": {
+                    "audio_paused": False,
+                    "article_text": "Secret article text",
+                    "url": "https://example.test/private",
+                    "provider_response": {"raw": "content"},
+                    "unexpected": "value",
+                },
+            }
+        ],
+    )
+
+    events = storage.list_playback_telemetry_events(generation_id)
+    assert events[0]["payload"] == {"audio_paused": False}
+
+
 def test_playback_telemetry_retains_newest_events_per_generation(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
@@ -182,15 +208,15 @@ def test_playback_telemetry_retains_newest_events_per_generation(test_settings):
         generation_id,
         "session-1",
         [
-            {"event_name": "audio_play", "segment_index": index, "payload": {"index": index}}
+            {"event_name": "audio_play", "segment_index": index, "payload": {"audio_current_time": index}}
             for index in range(1005)
         ],
     )
 
     events = storage.list_playback_telemetry_events(generation_id)
     assert len(events) == 1000
-    assert events[0]["payload"]["index"] == 5
-    assert events[-1]["payload"]["index"] == 1004
+    assert events[0]["segment_index"] == 5
+    assert events[-1]["segment_index"] == 1004
 
 
 def test_delete_generation_cascades_playback_telemetry(test_settings):

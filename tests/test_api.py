@@ -462,6 +462,37 @@ def test_record_playback_telemetry_validates_batch_size(test_settings):
     assert oversized.status_code == 422
 
 
+def test_record_playback_telemetry_drops_content_payload_keys(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    generation = client.post(
+        "/api/generations/text",
+        json={"text": "Secret article text.", "title": "Telemetry", "voice": "Test", "speed": 1.0, "language": "en"},
+    ).json()
+
+    response = client.post(
+        f"/api/generations/{generation['generation_id']}/playback-telemetry",
+        json={
+            "session_id": "session-1",
+            "events": [
+                {
+                    "event_name": "audio_play",
+                    "payload": {
+                        "audio_paused": False,
+                        "article_text": "Secret article text.",
+                        "ocr_text": "Visible OCR text",
+                        "url": "https://example.test/private",
+                        "provider_response": {"raw": "content"},
+                    },
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    events = Storage(test_settings.db_path).list_playback_telemetry_events(generation["generation_id"])
+    assert events[0]["payload"] == {"audio_paused": False}
+
+
 async def test_generation_events_replays_existing_events(test_settings):
     app = create_app(settings=test_settings, run_background_inline=True)
     generation_id = await app.state.service.create_from_text(text="Hello world.", title="Note", voice="Test")
