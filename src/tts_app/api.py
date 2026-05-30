@@ -5,6 +5,7 @@ import logging
 import shutil
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
@@ -46,6 +47,21 @@ class UrlGenerationRequest(BaseModel):
 class ProgressRequest(BaseModel):
     segment_index: int = Field(ge=0)
     completed: bool = False
+
+
+PLAYBACK_TELEMETRY_BATCH_LIMIT = 50
+
+
+class PlaybackTelemetryEventRequest(BaseModel):
+    event_name: str = Field(min_length=1, max_length=80)
+    segment_index: int | None = Field(default=None, ge=0)
+    audio_segment_id: int | None = Field(default=None, ge=0)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlaybackTelemetryRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=128)
+    events: list[PlaybackTelemetryEventRequest] = Field(min_length=1, max_length=PLAYBACK_TELEMETRY_BATCH_LIMIT)
 
 
 class VoicePreferenceRequest(BaseModel):
@@ -268,6 +284,24 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             progress["progress_percent"],
         )
         return progress
+
+    @app.post("/api/generations/{generation_id}/playback-telemetry")
+    async def record_playback_telemetry(generation_id: int, payload: PlaybackTelemetryRequest):
+        try:
+            stored = storage.record_playback_telemetry(
+                generation_id,
+                payload.session_id,
+                [event.model_dump() for event in payload.events],
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="generation not found") from exc
+        logger.info(
+            "playback_telemetry_recorded generation_id=%s session_id=%s events=%s",
+            generation_id,
+            payload.session_id,
+            stored,
+        )
+        return {"stored": stored}
 
     @app.delete("/api/generations/{generation_id}", status_code=204)
     async def delete_generation(generation_id: int):

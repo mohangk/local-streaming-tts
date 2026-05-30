@@ -12,6 +12,7 @@ from tts_app.api import create_app
 from tts_app.extractor import ExtractedText
 from tts_app.providers.base import AudioChunk, TTSOptions
 from tts_app.providers.options import SelectOption
+from tts_app.storage import Storage
 
 
 class CapturingTTSProvider:
@@ -395,6 +396,71 @@ def test_update_progress_completed_sets_100_percent(test_settings):
 
     assert response.status_code == 200
     assert response.json()["progress_percent"] == 100
+
+
+def test_record_playback_telemetry_batch(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    response = client.post(
+        "/api/generations/text",
+        json={"text": "One. Two.", "title": "Telemetry", "voice": "Test", "speed": 1.0, "language": "en"},
+    )
+    generation_id = response.json()["generation_id"]
+
+    response = client.post(
+        f"/api/generations/{generation_id}/playback-telemetry",
+        json={
+            "session_id": "session-1",
+            "events": [
+                {
+                    "event_name": "audio_waiting",
+                    "segment_index": 0,
+                    "audio_segment_id": None,
+                    "payload": {"visibility_state": "hidden"},
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"stored": 1}
+    events = Storage(test_settings.db_path).list_playback_telemetry_events(generation_id)
+    assert events[0]["event_name"] == "audio_waiting"
+    assert events[0]["payload"] == {"visibility_state": "hidden"}
+
+
+def test_record_playback_telemetry_unknown_generation_returns_404(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/generations/999/playback-telemetry",
+        json={"session_id": "session-1", "events": [{"event_name": "audio_play", "payload": {}}]},
+    )
+
+    assert response.status_code == 404
+
+
+def test_record_playback_telemetry_validates_batch_size(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    generation = client.post(
+        "/api/generations/text",
+        json={"text": "One.", "title": "Telemetry", "voice": "Test", "speed": 1.0, "language": "en"},
+    ).json()
+
+    empty = client.post(
+        f"/api/generations/{generation['generation_id']}/playback-telemetry",
+        json={"session_id": "session-1", "events": []},
+    )
+    oversized = client.post(
+        f"/api/generations/{generation['generation_id']}/playback-telemetry",
+        json={
+            "session_id": "session-1",
+            "events": [{"event_name": "audio_play", "payload": {}} for _ in range(51)],
+        },
+    )
+
+    assert empty.status_code == 422
+    assert oversized.status_code == 422
+
 
 async def test_generation_events_replays_existing_events(test_settings):
     app = create_app(settings=test_settings, run_background_inline=True)
