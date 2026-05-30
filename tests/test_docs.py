@@ -1,6 +1,16 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
+
+
+def _normalized_block_between(text: str, start: str, end: str) -> str:
+    block = text.split(start, 1)[1].split(end, 1)[0]
+    return "\n".join(line.rstrip() for line in block.strip().splitlines())
+
+
+def _normalized_prompt_body(markdown: str) -> str:
+    return "\n".join(line.rstrip() for line in markdown.split("## Prompt", 1)[1].strip().splitlines())
 
 
 def test_handoff_docs_exist_and_cover_local_operations():
@@ -8,7 +18,9 @@ def test_handoff_docs_exist_and_cover_local_operations():
     agents = Path("AGENTS.md").read_text(encoding="utf-8")
     architecture = Path("docs/architecture.md").read_text(encoding="utf-8")
     architecture_reviewer = Path("docs/architecture-review-subagent.md").read_text(encoding="utf-8")
-    architecture_agent = Path(".codex/agents/architecture-reviewer.toml").read_text(encoding="utf-8")
+    architecture_agent_text = Path(".codex/agents/architecture-reviewer.toml").read_text(encoding="utf-8")
+    architecture_agent = tomllib.loads(architecture_agent_text)
+    architecture_agent_instructions = architecture_agent["developer_instructions"]
     gitignore = Path(".gitignore").read_text(encoding="utf-8")
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
@@ -64,12 +76,44 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "Drafts and linked artifacts" in architecture_reviewer
     assert "Frontend modularity" in architecture_reviewer
     assert "Output format" in architecture_reviewer
-    assert 'name = "architecture_reviewer"' in architecture_agent
-    assert 'sandbox_mode = "read-only"' in architecture_agent
-    assert 'developer_instructions = """' in architecture_agent
-    assert "docs/architecture.md" in architecture_agent
-    assert "Frontend modularity" in architecture_agent
-    assert "Architecture Review" in architecture_agent
+    assert architecture_agent["name"] == "architecture_reviewer"
+    assert architecture_agent["sandbox_mode"] == "read-only"
+    assert architecture_agent["model_reasoning_effort"] == "high"
+    assert "docs/architecture.md" in architecture_agent_instructions
+    assert "Architecture Review" in architecture_agent_instructions
+    assert _normalized_prompt_body(architecture_reviewer) == "\n".join(
+        line.rstrip() for line in architecture_agent_instructions.strip().splitlines()
+    )
+    assert _normalized_block_between(
+        architecture_reviewer,
+        "Check these areas:",
+        "Output format:",
+    ) == _normalized_block_between(
+        architecture_agent_instructions,
+        "Check these areas:",
+        "Output format:",
+    )
+    assert _normalized_block_between(
+        architecture_reviewer,
+        "Output format:",
+        "If there are no findings",
+    ) == _normalized_block_between(
+        architecture_agent_instructions,
+        "Output format:",
+        "If there are no findings",
+    )
+    for checklist_anchor in (
+        "Runtime shape",
+        "Provider boundaries",
+        "Storage and migrations",
+        "Drafts and linked artifacts",
+        "Route/API boundaries",
+        "Frontend modularity",
+        "Tests",
+        "Commit and PR shape",
+    ):
+        assert checklist_anchor in architecture_reviewer
+        assert checklist_anchor in architecture_agent_instructions
     assert ".codex/*" in gitignore
     assert "!.codex/agents/*.toml" in gitignore
     assert "docs/architecture.md" in agents
