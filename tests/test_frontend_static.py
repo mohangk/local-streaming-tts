@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -29,6 +30,14 @@ def test_frontend_has_generate_history_and_playback_views():
     assert 'href="/static/styles.css?v=' in html
     assert 'src="/static/app.js?v=' in html
     assert '<script type="module" src="/static/app.js?v=' in html
+
+
+def test_frontend_versions_split_javascript_module_imports():
+    local_import = re.compile(r'from "(\./[^"?]+\.js)(\?v=[^"]+)?"')
+    for filename in JS_FILES:
+        js = (STATIC_DIR / filename).read_text(encoding="utf-8")
+        for match in local_import.finditer(js):
+            assert match.group(2), f"{filename} imports {match.group(1)} without a cache-busting version"
 
 
 def test_frontend_javascript_uses_history_and_event_endpoints():
@@ -244,6 +253,8 @@ def test_frontend_marks_ocr_draft_linked_after_generation_success():
     js = frontend_js()
     generator = js.split("async function generateOcrAudio()", 1)[1].split("async function deleteOcrDraftImage", 1)[0]
 
+    assert "method: \"PUT\"" not in generator
+    assert "combined_text: combinedText" in generator
     assert "markCurrentOcrDraftLinked(result.generation_id)" in generator
     assert "function markCurrentOcrDraftLinked" in js
     linked_helper = js.split("function markCurrentOcrDraftLinked", 1)[1].split("function renderOcrReview", 1)[0]

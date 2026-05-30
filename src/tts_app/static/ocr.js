@@ -1,4 +1,4 @@
-import { state } from "./state.js";
+import { state } from "./state.js?v=ocr-generate-fix-1";
 import {
   audioPlayer,
   autoplayInput,
@@ -20,8 +20,8 @@ import {
   ocrUploadStatus,
   playerStatus,
   uploadImageFilesButton,
-} from "./dom.js";
-import { escapeHtml, withButtonBusy } from "./utils.js";
+} from "./dom.js?v=ocr-generate-fix-1";
+import { escapeHtml, withButtonBusy } from "./utils.js?v=ocr-generate-fix-1";
 
 const OCR_IMAGE_MAX_EDGE = 2048;
 const OCR_IMAGE_JPEG_QUALITY = 0.85;
@@ -568,16 +568,6 @@ async function generateOcrAudio() {
   const language = currentLanguage();
   const combinedText = reviewedOcrText();
   try {
-    const update = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ language, combined_text: combinedText }),
-    });
-    if (!update.ok) {
-      const error = await update.json();
-      playerStatus.textContent = error.detail || "Unable to save reviewed text";
-      return;
-    }
     const response = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}/generation`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -586,6 +576,7 @@ async function generateOcrAudio() {
         speed: Number(speedSelect.value || "1"),
         language,
         autoplay: state.autoplay,
+        combined_text: combinedText,
       }),
     });
     if (!response.ok) {

@@ -27,10 +27,10 @@ import {
   voiceSelect,
   voiceStar,
   views,
-} from "./dom.js";
-import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js";
-import { state } from "./state.js";
-import { escapeHtml, formatSpeed, setButtonBusy, withButtonBusy } from "./utils.js";
+} from "./dom.js?v=ocr-generate-fix-1";
+import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=ocr-generate-fix-1";
+import { state } from "./state.js?v=ocr-generate-fix-1";
+import { escapeHtml, formatSpeed, setButtonBusy, withButtonBusy } from "./utils.js?v=ocr-generate-fix-1";
 
 function showView(viewId) {
   views.forEach((view) => {

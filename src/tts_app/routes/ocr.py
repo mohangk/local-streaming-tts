@@ -39,6 +39,7 @@ class OcrDraftGenerationRequest(BaseModel):
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     language: str = "en"
     autoplay: bool = True
+    combined_text: str | None = None
 
 
 def create_ocr_router(
@@ -255,6 +256,14 @@ def create_ocr_router(
 
         if draft["linked_generation_id"] is not None:
             raise HTTPException(status_code=409, detail="ocr draft is already linked to a generation")
+        if payload.combined_text is not None:
+            storage.update_ocr_draft(
+                draft_id,
+                language=payload.language,
+                combined_text=payload.combined_text,
+                image_texts={},
+            )
+            draft = storage.get_ocr_draft(draft_id)
         reviewed_text = str(draft["combined_text"]).strip()
         if not reviewed_text.strip():
             raise HTTPException(status_code=400, detail="ocr draft text is empty")

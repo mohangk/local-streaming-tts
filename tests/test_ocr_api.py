@@ -395,6 +395,31 @@ def test_ocr_generation_uses_combined_text(test_settings):
     assert detail["generation"]["full_text"] == "Edited combined text."
 
 
+def test_ocr_generation_saves_reviewed_text_from_generation_request(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    draft = client.post(
+        "/api/ocr-drafts",
+        files={"image": ("page.png", b"fake-image", "image/png")},
+    ).json()
+
+    generation = client.post(
+        f"/api/ocr-drafts/{draft['id']}/generation",
+        json={
+            "voice": "Jennifer",
+            "speed": 1.0,
+            "language": "en",
+            "autoplay": True,
+            "combined_text": "Reviewed text sent with generate.",
+        },
+    )
+
+    assert generation.status_code == 200
+    detail = client.get(f"/api/generations/{generation.json()['generation_id']}").json()
+    assert detail["generation"]["full_text"] == "Reviewed text sent with generate."
+    updated = client.get(f"/api/ocr-drafts/{draft['id']}").json()
+    assert updated["combined_text"] == "Reviewed text sent with generate."
+
+
 def test_retry_ocr_image_rebuilds_combined_text_from_all_images(test_settings, monkeypatch):
     class RetryMiddleOCRProvider:
         name = "retry-middle-ocr"
