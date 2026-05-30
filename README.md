@@ -156,7 +156,8 @@ TTS_PROVIDER=qwen .venv/bin/uvicorn tts_app.api:create_app --factory --reload --
 
 ```bash
 .venv/bin/pytest -q
-node --check src/tts_app/static/app.js
+npm run check:js
+npm run lint:js
 ```
 
 ## Verification Checklist

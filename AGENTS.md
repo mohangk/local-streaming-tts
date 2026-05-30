@@ -20,7 +20,8 @@ Run tests before claiming work is complete:
 
 ```bash
 .venv/bin/pytest -q
-node --check src/tts_app/static/app.js
+npm run check:js
+npm run lint:js
 ```
 
 Run locally with the fake provider:

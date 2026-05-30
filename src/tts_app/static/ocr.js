@@ -1,6 +1,5 @@
 import { state } from "./state.js?v=ocr-generate-fix-1";
 import {
-  audioPlayer,
   autoplayInput,
   cancelOcrUploadButton,
   clearOcrDraftButton,
@@ -337,7 +336,7 @@ function uploadOcrDraft(formData, draftId = null) {
       showOcrExtractingProgress();
     };
     xhr.onload = () => {
-      let body = {};
+      let body;
       try {
         body = JSON.parse(xhr.responseText || "{}");
       } catch {
