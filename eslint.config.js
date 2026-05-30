@@ -18,6 +18,14 @@ const browserGlobals = {
   window: "readonly",
 };
 
+const testGlobals = {
+  afterEach: "readonly",
+  describe: "readonly",
+  expect: "readonly",
+  it: "readonly",
+  vi: "readonly",
+};
+
 export default [
   {
     ignores: ["node_modules/**"],
@@ -29,6 +37,19 @@ export default [
       ecmaVersion: "latest",
       sourceType: "module",
       globals: browserGlobals,
+    },
+    rules: {
+      ...eslint.configs.recommended.rules,
+      "no-undef": "error",
+    },
+  },
+  {
+    files: ["tests/js/**/*.js"],
+    ...eslint.configs.recommended,
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: { ...browserGlobals, ...testGlobals },
     },
     rules: {
       ...eslint.configs.recommended.rules,

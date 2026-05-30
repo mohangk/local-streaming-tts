@@ -3,11 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint:js": "eslint src/tts_app/static/**/*.js",
-    "check:js": "node --check src/tts_app/static/app.js && node --check src/tts_app/static/ocr.js && node --check src/tts_app/static/utils.js && node --check src/tts_app/static/dom.js && node --check src/tts_app/static/state.js"
+    "lint:js": "eslint src/tts_app/static/**/*.js tests/js/**/*.js",
+    "check:js": "node --check src/tts_app/static/app.js && node --check src/tts_app/static/ocr.js && node --check src/tts_app/static/utils.js && node --check src/tts_app/static/dom.js && node --check src/tts_app/static/state.js",
+    "test:js": "vitest run --environment jsdom"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.4.1"
+    "eslint": "^10.4.1",
+    "jsdom": "^27.2.0",
+    "vitest": "^4.0.14"
   }
 }
