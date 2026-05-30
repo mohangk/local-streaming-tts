@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=ocr-generate-fix-1";
+import { state } from "./state.js?v=playback-vitest-1";
 import {
   autoplayInput,
   cancelOcrUploadButton,
@@ -21,8 +21,8 @@ import {
   speedSelect,
   uploadImageFilesButton,
   voiceSelect,
-} from "./dom.js?v=ocr-generate-fix-1";
-import { escapeHtml, withButtonBusy } from "./utils.js?v=ocr-generate-fix-1";
+} from "./dom.js?v=playback-vitest-1";
+import { escapeHtml, withButtonBusy } from "./utils.js?v=playback-vitest-1";
 
 const OCR_IMAGE_MAX_EDGE = 2048;
 const OCR_IMAGE_JPEG_QUALITY = 0.85;
