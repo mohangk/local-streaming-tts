@@ -92,6 +92,122 @@ def test_generation_progress_completed_sets_100_percent(test_settings):
 
     assert storage.get_generation(generation_id)["generation"]["progress_percent"] == 100
 
+
+def test_playback_telemetry_round_trip(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A B", "fake", "Test", {})
+    segment_ids = storage.create_text_segments(generation_id, ["A", "B"])
+    audio_id = storage.record_audio_segment(
+        generation_id,
+        segment_ids[0],
+        0,
+        "audio/1/0.mp3",
+        "audio/mpeg",
+        10,
+        123,
+        "completed",
+        None,
+    )
+
+    stored = storage.record_playback_telemetry(
+        generation_id,
+        "session-1",
+        [
+            {
+                "event_name": "audio_waiting",
+                "segment_index": 0,
+                "audio_segment_id": audio_id,
+                "payload": {"visibility_state": "hidden", "audio_paused": False},
+            }
+        ],
+    )
+
+    events = storage.list_playback_telemetry_events(generation_id)
+    assert stored == 1
+    assert len(events) == 1
+    assert events[0]["generation_id"] == generation_id
+    assert events[0]["session_id"] == "session-1"
+    assert events[0]["event_name"] == "audio_waiting"
+    assert events[0]["segment_index"] == 0
+    assert events[0]["audio_segment_id"] == audio_id
+    assert events[0]["payload"] == {"visibility_state": "hidden", "audio_paused": False}
+    assert events[0]["created_at"]
+
+
+def test_playback_telemetry_requires_existing_generation(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+
+    with pytest.raises(KeyError):
+        storage.record_playback_telemetry(
+            999,
+            "session-1",
+            [{"event_name": "audio_play", "payload": {}}],
+        )
+
+
+def test_playback_telemetry_requires_audio_segment_from_same_generation(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    first_generation_id = storage.create_generation("text", "First", None, "A", "fake", "Test", {})
+    second_generation_id = storage.create_generation("text", "Second", None, "B", "fake", "Test", {})
+    segment_ids = storage.create_text_segments(second_generation_id, ["B"])
+    audio_id = storage.record_audio_segment(
+        second_generation_id,
+        segment_ids[0],
+        0,
+        "audio/2/0.mp3",
+        "audio/mpeg",
+        10,
+        123,
+        "completed",
+        None,
+    )
+
+    with pytest.raises(KeyError):
+        storage.record_playback_telemetry(
+            first_generation_id,
+            "session-1",
+            [{"event_name": "audio_play", "audio_segment_id": audio_id, "payload": {}}],
+        )
+
+
+def test_playback_telemetry_retains_newest_events_per_generation(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+
+    storage.record_playback_telemetry(
+        generation_id,
+        "session-1",
+        [
+            {"event_name": "audio_play", "segment_index": index, "payload": {"index": index}}
+            for index in range(1005)
+        ],
+    )
+
+    events = storage.list_playback_telemetry_events(generation_id)
+    assert len(events) == 1000
+    assert events[0]["payload"]["index"] == 5
+    assert events[-1]["payload"]["index"] == 1004
+
+
+def test_delete_generation_cascades_playback_telemetry(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "A", "fake", "Test", {})
+    storage.record_playback_telemetry(
+        generation_id,
+        "session-1",
+        [{"event_name": "audio_play", "payload": {}}],
+    )
+
+    storage.delete_generation(generation_id)
+
+    assert storage.list_playback_telemetry_events(generation_id) == []
+
+
 def test_delete_generation_cascades_segments(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()

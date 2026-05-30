@@ -8,6 +8,8 @@ from typing import Any, Iterator
 
 from tts_app.models import SourceType, Status
 
+PLAYBACK_TELEMETRY_RETENTION_LIMIT = 1000
+
 
 class Storage:
     def __init__(self, db_path: Path):
@@ -79,6 +81,23 @@ class Storage:
                     FOREIGN KEY (generation_id, text_segment_id, segment_index) REFERENCES text_segments(generation_id, id, segment_index) ON DELETE CASCADE,
                     UNIQUE(generation_id, segment_index)
                 );
+
+                CREATE TABLE IF NOT EXISTS playback_telemetry_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    generation_id INTEGER NOT NULL REFERENCES generations(id) ON DELETE CASCADE,
+                    session_id TEXT NOT NULL,
+                    event_name TEXT NOT NULL,
+                    segment_index INTEGER CHECK (segment_index IS NULL OR segment_index >= 0),
+                    audio_segment_id INTEGER REFERENCES audio_segments(id) ON DELETE SET NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_playback_telemetry_generation_id
+                ON playback_telemetry_events(generation_id, id);
+
+                CREATE INDEX IF NOT EXISTS idx_playback_telemetry_session_id
+                ON playback_telemetry_events(session_id, id);
 
                 CREATE TABLE IF NOT EXISTS voice_preferences (
                     voice TEXT NOT NULL,
@@ -387,6 +406,84 @@ class Storage:
             )
 
         return {"last_segment_index": last_segment_index, "progress_percent": progress_percent}
+
+    def record_playback_telemetry(self, generation_id: int, session_id: str, events: list[dict[str, Any]]) -> int:
+        with self.connection() as conn:
+            generation = conn.execute("SELECT id FROM generations WHERE id = ?", (generation_id,)).fetchone()
+            if generation is None:
+                raise KeyError(f"generation {generation_id} not found")
+
+            audio_segment_ids = {
+                int(event["audio_segment_id"])
+                for event in events
+                if event.get("audio_segment_id") is not None
+            }
+            if audio_segment_ids:
+                placeholders = ",".join("?" for _ in audio_segment_ids)
+                rows = conn.execute(
+                    f"""
+                    SELECT id
+                    FROM audio_segments
+                    WHERE generation_id = ? AND id IN ({placeholders})
+                    """,
+                    (generation_id, *audio_segment_ids),
+                ).fetchall()
+                found_ids = {int(row["id"]) for row in rows}
+                if found_ids != audio_segment_ids:
+                    raise KeyError(f"audio segment does not belong to generation {generation_id}")
+
+            rows = [
+                (
+                    generation_id,
+                    session_id,
+                    str(event["event_name"]),
+                    event.get("segment_index"),
+                    event.get("audio_segment_id"),
+                    json.dumps(event.get("payload", {})),
+                )
+                for event in events
+            ]
+            conn.executemany(
+                """
+                INSERT INTO playback_telemetry_events
+                    (generation_id, session_id, event_name, segment_index, audio_segment_id, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+            conn.execute(
+                """
+                DELETE FROM playback_telemetry_events
+                WHERE generation_id = ?
+                  AND id NOT IN (
+                    SELECT id
+                    FROM playback_telemetry_events
+                    WHERE generation_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                  )
+                """,
+                (generation_id, generation_id, PLAYBACK_TELEMETRY_RETENTION_LIMIT),
+            )
+        return len(events)
+
+    def list_playback_telemetry_events(self, generation_id: int) -> list[dict[str, Any]]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, generation_id, session_id, event_name, segment_index, audio_segment_id, payload_json, created_at
+                FROM playback_telemetry_events
+                WHERE generation_id = ?
+                ORDER BY id
+                """,
+                (generation_id,),
+            ).fetchall()
+        events = []
+        for row in rows:
+            event = dict(row)
+            event["payload"] = json.loads(event.pop("payload_json"))
+            events.append(event)
+        return events
 
     def update_text_segment_status(self, text_segment_id: int, status: Status) -> None:
         with self.connection() as conn:
