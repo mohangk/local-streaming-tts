@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from tts_app.api import create_app
 from tts_app.extractor import ExtractedText
-from tts_app.providers.base import AudioChunk, TTSOptions
+from tts_app.providers.base import AudioChunk, ProviderError, TTSOptions
 from tts_app.providers.options import SelectOption
 from tts_app.storage import Storage
 
@@ -28,6 +28,13 @@ class CapturingTTSProvider:
         self.calls.append((text, options))
         yield AudioChunk(data=b"sample-", mime_type="audio/mpeg", extension="mp3")
         yield AudioChunk(data=b"audio", mime_type="audio/mpeg", extension="mp3")
+
+
+class FailingSampleProvider(CapturingTTSProvider):
+    async def stream_speech(self, text: str, options: TTSOptions) -> AsyncIterator[AudioChunk]:
+        self.calls.append((text, options))
+        yield AudioChunk(data=b"partial-", mime_type="audio/mpeg", extension="mp3")
+        raise ProviderError("sample failed")
 
 def test_submit_text_starts_generation_and_history_returns_item(test_settings):
     app = create_app(settings=test_settings)
@@ -151,7 +158,7 @@ def test_voice_sample_returns_audio_without_creating_history(test_settings, monk
     assert response.headers["content-type"].startswith("audio/")
     assert response.content == b"sample-audio"
     assert client.get("/api/generations").json() == []
-    assert not test_settings.audio_dir.exists()
+    assert list((test_settings.audio_dir / "voice-samples").glob("*.mp3"))
     text, options = provider.calls[0]
     assert text.startswith("This is a short Readvox voice sample.")
     assert options.voice == "Jennifer"
@@ -172,6 +179,63 @@ def test_voice_sample_uses_chinese_script(test_settings, monkeypatch):
     assert "这是一个简短的 Readvox 语音示例" in text
     assert options.voice == "Cherry"
     assert options.language == "Chinese"
+
+
+def test_voice_sample_rejects_invalid_language(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post("/api/voice-sample", json={"voice": "Jennifer", "speed": 1.0, "language": "fr"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "language must be en or zh"
+    assert provider.calls == []
+    assert not (test_settings.audio_dir / "voice-samples").exists()
+
+
+def test_voice_sample_reuses_cached_audio(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    first = client.post("/api/voice-sample", json={"voice": "Jennifer", "speed": 1.25, "language": "en"})
+    second = client.post("/api/voice-sample", json={"voice": "Jennifer", "speed": 1.25, "language": "en"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.content == b"sample-audio"
+    assert second.content == b"sample-audio"
+    assert len(provider.calls) == 1
+    assert len(list((test_settings.audio_dir / "voice-samples").glob("*.mp3"))) == 1
+
+
+def test_voice_sample_cache_key_includes_speed(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    normal = client.post("/api/voice-sample", json={"voice": "Jennifer", "speed": 1.0, "language": "en"})
+    faster = client.post("/api/voice-sample", json={"voice": "Jennifer", "speed": 1.25, "language": "en"})
+
+    assert normal.status_code == 200
+    assert faster.status_code == 200
+    assert len(provider.calls) == 2
+    assert {call[1].speed for call in provider.calls} == {1.0, 1.25}
+    assert len(list((test_settings.audio_dir / "voice-samples").glob("*.mp3"))) == 2
+
+
+def test_voice_sample_failure_does_not_cache_partial_file(test_settings, monkeypatch):
+    provider = FailingSampleProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True), raise_server_exceptions=False)
+
+    response = client.post("/api/voice-sample", json={"voice": "Jennifer", "speed": 1.25, "language": "en"})
+
+    assert response.status_code == 502
+    cache_dir = test_settings.audio_dir / "voice-samples"
+    assert not list(cache_dir.glob("*.mp3"))
+    assert not list(cache_dir.glob("*.tmp.*"))
 
 def test_submit_text_preserves_explicit_voice(test_settings):
     app = create_app(settings=test_settings)

@@ -24,6 +24,7 @@ from tts_app.routes.ocr import create_ocr_router
 from tts_app.routes.playback import create_playback_router
 from tts_app.routes.shared import schedule_generation
 from tts_app.storage import PLAYBACK_TELEMETRY_EVENT_NAMES, Storage, validate_playback_telemetry_session_id
+from tts_app.voice_samples import VoiceSampleCache, VoiceSampleCacheError
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     storage.init_schema()
     broker = EventBroker()
     provider = get_provider(active_settings)
+    voice_sample_cache = VoiceSampleCache(active_settings, provider)
     ocr_provider = get_ocr_provider(active_settings)
     service = GenerationService(
         storage=storage,
@@ -195,19 +197,23 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
 
     @app.post("/api/voice-sample")
     async def voice_sample(payload: VoiceSampleRequest):
-        text = SAMPLE_TEXT.get(payload.language, SAMPLE_TEXT["en"])
+        _validate_language(payload.language)
+        text = SAMPLE_TEXT[payload.language]
         options = TTSOptions(
             voice=payload.voice,
             speed=payload.speed,
-            language=SAMPLE_LANGUAGES.get(payload.language, "Auto"),
+            language=SAMPLE_LANGUAGES[payload.language],
             audio_format="mp3",
         )
-
-        async def stream():
-            async for chunk in provider.stream_speech(text, options):
-                yield chunk.data
-
-        return StreamingResponse(stream(), media_type="audio/mpeg")
+        try:
+            audio, mime_type = await voice_sample_cache.get_or_create(
+                text=text,
+                options=options,
+                language=payload.language,
+            )
+        except VoiceSampleCacheError as exc:
+            raise HTTPException(status_code=502, detail="voice sample failed") from exc
+        return Response(content=audio, media_type=mime_type)
 
     @app.post("/api/generations/text")
     async def submit_text(payload: TextGenerationRequest, background_tasks: BackgroundTasks):
