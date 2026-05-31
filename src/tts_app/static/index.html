@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Readvox</title>
-    <link rel="stylesheet" href="/static/styles.css?v=continuous-playback-1" />
+    <link rel="stylesheet" href="/static/styles.css?v=voice-controls-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -36,24 +36,38 @@
           <div id="ocr-review-list" class="ocr-review-list hidden"></div>
           <button id="generate-ocr-audio" class="primary-action hidden" type="button">Generate audio</button>
           <div id="ocr-drafts-list" class="history-list hidden"></div>
-          <div class="option-grid">
-            <label class="field-label" for="language-select">
-              Language
-              <select id="language-select" aria-label="Language"></select>
-            </label>
-            <label class="field-label" for="voice-select">
-              Voice
-              <span class="voice-row">
-                <select id="voice-select" aria-label="Voice"></select>
-                <button id="voice-star" class="secondary-action icon-action" type="button" aria-label="Mark voice as preferred">☆</button>
-              </span>
-            </label>
-            <label class="field-label" for="speed-select">
-              Speed
-              <select id="speed-select" aria-label="Speech speed"></select>
-            </label>
+          <div id="voice-panel" class="voice-panel">
+            <div id="voice-summary" class="voice-summary">
+              <div>
+                <div id="voice-summary-text" class="voice-summary-text">Voice</div>
+                <div id="voice-summary-speed" class="voice-summary-speed">1x</div>
+              </div>
+              <button id="voice-edit" class="secondary-action compact-action" type="button">Edit</button>
+            </div>
+            <div id="voice-expanded" class="voice-expanded hidden">
+              <div class="option-grid">
+                <label class="field-label" for="language-select">
+                  Language
+                  <select id="language-select" aria-label="Language"></select>
+                </label>
+                <label class="field-label" for="voice-select">
+                  Voice
+                  <span class="voice-row">
+                    <select id="voice-select" aria-label="Voice"></select>
+                    <button id="voice-star" class="secondary-action icon-action" type="button" aria-label="Mark voice as preferred">☆</button>
+                  </span>
+                </label>
+                <label class="field-label" for="speed-select">
+                  Speed
+                  <select id="speed-select" aria-label="Speech speed"></select>
+                </label>
+              </div>
+              <div class="voice-actions">
+                <button id="voice-sample" class="secondary-action" type="button">Sample</button>
+                <button id="voice-done" class="secondary-action" type="button">Done</button>
+              </div>
+            </div>
           </div>
-          <button id="voice-sample" class="secondary-action" type="button">Sample</button>
           <label class="toggle-row">
             <input id="autoplay" type="checkbox" checked />
             <span>Auto-play segments</span>
@@ -100,6 +114,6 @@
     </div>
 
     <audio id="audio-player"></audio>
-    <script type="module" src="/static/app.js?v=continuous-playback-1"></script>
+    <script type="module" src="/static/app.js?v=voice-controls-1"></script>
   </body>
 </html>

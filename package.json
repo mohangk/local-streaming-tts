@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "lint:js": "eslint src/tts_app/static/**/*.js tests/js/**/*.js",
-    "check:js": "node --check src/tts_app/static/app.js && node --check src/tts_app/static/ocr.js && node --check src/tts_app/static/playback.js && node --check src/tts_app/static/telemetry.js && node --check src/tts_app/static/utils.js && node --check src/tts_app/static/dom.js && node --check src/tts_app/static/state.js",
+    "check:js": "node --check src/tts_app/static/app.js && node --check src/tts_app/static/ocr.js && node --check src/tts_app/static/playback.js && node --check src/tts_app/static/telemetry.js && node --check src/tts_app/static/voice-controls.js && node --check src/tts_app/static/utils.js && node --check src/tts_app/static/dom.js && node --check src/tts_app/static/state.js",
     "test:js": "vitest run --environment jsdom"
   },
   "devDependencies": {

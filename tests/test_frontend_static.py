@@ -8,7 +8,16 @@ from pathlib import Path
 STATIC_DIR = Path("src/tts_app/static")
 SRC_DIR = Path("src/tts_app")
 PYPROJECT = Path("pyproject.toml")
-JS_FILES = ("app.js", "ocr.js", "playback.js", "telemetry.js", "state.js", "dom.js", "utils.js")
+JS_FILES = (
+    "app.js",
+    "ocr.js",
+    "playback.js",
+    "telemetry.js",
+    "voice-controls.js",
+    "state.js",
+    "dom.js",
+    "utils.js",
+)
 
 
 def frontend_js() -> str:
@@ -65,26 +74,58 @@ def test_frontend_imports_playback_telemetry_module():
     assert "export function createPlaybackTelemetry" in telemetry_js
 
 
+def test_frontend_imports_voice_controls_module():
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    voice_controls_js = (STATIC_DIR / "voice-controls.js").read_text(encoding="utf-8")
+
+    assert 'from "./voice-controls.js?v=' in app_js
+    assert "renderVoiceControls" in app_js
+    assert "voiceGenerationPayload" in app_js
+    assert "export function renderVoiceControls" in voice_controls_js
+    assert "export function voiceGenerationPayload" in voice_controls_js
+
+
 def test_frontend_voice_sample_path_does_not_record_playback_telemetry():
     js = frontend_js()
-    sampler = js.split("async function playVoiceSample()", 1)[1].split("async function loadHistory()", 1)[0]
+    sampler = js.split("export async function playVoiceSample()", 1)[1].split(
+        "export function setVoiceControlsHidden", 1
+    )[0]
 
     assert "playbackTelemetry.record" not in sampler
     assert "state.samplePlayback = true" in sampler
 
 
-def test_frontend_static_asset_version_bumped_for_continuous_playback():
+def test_frontend_static_asset_version_bumped_for_voice_controls():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    ocr_js = (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
+    sources = [html, *((STATIC_DIR / filename).read_text(encoding="utf-8") for filename in JS_FILES)]
 
-    assert 'href="/static/styles.css?v=continuous-playback-1"' in html
-    assert 'src="/static/app.js?v=continuous-playback-1"' in html
-    assert "?v=continuous-playback-1" in app_js
-    assert "?v=continuous-playback-1" in ocr_js
-    for source in (html, app_js, ocr_js):
+    assert 'href="/static/styles.css?v=voice-controls-1"' in html
+    assert 'src="/static/app.js?v=voice-controls-1"' in html
+    assert "voice-controls-1" in (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    assert "voice-controls-1" in (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
+    assert "voice-controls-1" in (STATIC_DIR / "voice-controls.js").read_text(encoding="utf-8")
+    for source in sources:
+        assert "continuous-playback-1" not in source
         assert "playback-vitest-1" not in source
         assert "playback-telemetry-1" not in source
+
+
+def test_frontend_voice_controls_are_collapsed_by_default():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+    js = frontend_js()
+
+    assert 'id="voice-panel"' in html
+    assert 'id="voice-summary"' in html
+    assert 'id="voice-summary-text"' in html
+    assert 'id="voice-summary-speed"' in html
+    assert 'id="voice-edit"' in html
+    assert 'id="voice-expanded" class="voice-expanded hidden"' in html
+    assert 'id="voice-done"' in html
+    assert ".voice-panel-expanded .voice-summary" in css
+    assert ".voice-panel-expanded .voice-expanded" in css
+    assert "voiceEditButton?.addEventListener" in js
+    assert "voiceDoneButton?.addEventListener" in js
 
 
 def test_frontend_javascript_uses_history_and_event_endpoints():
@@ -94,9 +135,10 @@ def test_frontend_javascript_uses_history_and_event_endpoints():
     assert "/api/generations/url" in js
     assert "/api/options" in js
     assert "/progress" in js
-    assert "payload.voice" in js
-    assert "payload.speed" in js
-    assert "payload.language" in js
+    assert "voiceGenerationPayload()" in js
+    assert "voice:" in js
+    assert "speed:" in js
+    assert "language:" in js
     assert "EventSource" in js
     assert "scrollIntoView" in js
 
@@ -107,7 +149,7 @@ def test_frontend_javascript_uses_language_scoped_voice_preferences():
     assert "/preference" in js
     assert "JSON.stringify({ preferred, language" in js
     assert "option.language === voice.language" in js
-    assert "languageSelect.addEventListener(\"change\", renderOptions)" in js
+    assert 'languageSelect?.addEventListener("change", handleLanguageChange)' in js
 
 
 def test_frontend_has_image_input_controls():
@@ -335,8 +377,9 @@ def test_frontend_shows_busy_feedback_while_generating_ocr_audio():
     assert "async function generateOcrAudio(button = null)" in js
     assert "withButtonBusy(button, \"Generating...\"" in generator
     assert "generateOcrAudioButton.addEventListener(\"click\", () => generateOcrAudio(generateOcrAudioButton))" in js
-    assert "voiceSelect" in ocr_imports
-    assert "speedSelect" in ocr_imports
+    assert "voiceSelect" not in ocr_imports
+    assert "speedSelect" not in ocr_imports
+    assert "voiceGenerationPayload()" in generator
 
 
 def test_frontend_draft_images_mode_owns_unlinked_draft_list():
@@ -398,7 +441,9 @@ def test_frontend_image_preview_opens_from_thumbnails_and_closes():
 
 def test_frontend_voice_sample_marks_sample_playback_state():
     js = frontend_js()
-    sampler = js.split("async function playVoiceSample()", 1)[1].split("async function loadHistory()", 1)[0]
+    sampler = js.split("export async function playVoiceSample()", 1)[1].split(
+        "export function setVoiceControlsHidden", 1
+    )[0]
 
     assert 'document.querySelector("#voice-sample")' in js
     assert "state.samplePlayback = true" in sampler
@@ -410,7 +455,7 @@ def test_frontend_voice_sample_revokes_object_urls():
     js = frontend_js()
 
     assert "URL.revokeObjectURL" in js
-    assert "function clearSamplePlayback" in js
+    assert "function clearSamplePlayback" in js or "export function clearSamplePlayback" in js
     assert "clearSamplePlayback()" in js.split("function stopPlayback", 1)[1].split(
         "function handleEventSourceError", 1
     )[0]

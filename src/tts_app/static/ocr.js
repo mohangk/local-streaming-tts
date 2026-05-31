@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=continuous-playback-1";
+import { state } from "./state.js?v=voice-controls-1";
 import {
   autoplayInput,
   cancelOcrUploadButton,
@@ -18,11 +18,9 @@ import {
   ocrUploadProgress,
   ocrUploadStatus,
   playerStatus,
-  speedSelect,
   uploadImageFilesButton,
-  voiceSelect,
-} from "./dom.js?v=continuous-playback-1";
-import { escapeHtml, withButtonBusy } from "./utils.js?v=continuous-playback-1";
+} from "./dom.js?v=voice-controls-1";
+import { escapeHtml, withButtonBusy } from "./utils.js?v=voice-controls-1";
 
 const OCR_IMAGE_MAX_EDGE = 2048;
 const OCR_IMAGE_JPEG_QUALITY = 0.85;
@@ -37,12 +35,16 @@ function setInputMode(mode) {
   appCallbacks.setInputMode(mode);
 }
 
-function renderOptions() {
-  appCallbacks.renderOptions();
+function renderOptions(selectionOverride = {}) {
+  appCallbacks.renderOptions(selectionOverride);
 }
 
 function currentLanguage() {
   return appCallbacks.currentLanguage();
+}
+
+function voiceGenerationPayload() {
+  return appCallbacks.voiceGenerationPayload();
 }
 
 function stopPlayback() {
@@ -80,7 +82,7 @@ function showOcrDraft(draft) {
   }
   if (draft.language) {
     languageSelect.value = draft.language;
-    renderOptions();
+    renderOptions({ language: draft.language });
   }
   renderOcrReview();
   ocrReviewList.classList.remove("hidden");
@@ -562,17 +564,15 @@ async function generateOcrAudio(button = null) {
   await withButtonBusy(button, "Generating...", async () => {
     stopPlayback();
     state.autoplay = autoplayInput.checked;
-    const language = currentLanguage();
     const combinedText = reviewedOcrText();
+    const voicePayload = voiceGenerationPayload();
     playerStatus.textContent = "Generating audio...";
     try {
       const response = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}/generation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          voice: voiceSelect.value,
-          speed: Number(speedSelect.value || "1"),
-          language,
+          ...voicePayload,
           autoplay: state.autoplay,
           combined_text: combinedText,
         }),

@@ -32,6 +32,14 @@ textarea, input[type="url"], select, .search-input { width: 100%; border: 1px so
 textarea { resize: vertical; min-height: 220px; }
 .option-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .option-grid label { display: grid; gap: 6px; }
+.voice-panel { display: grid; gap: 10px; }
+.voice-summary { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; border: 1px solid #d8dde6; border-radius: 8px; background: #ffffff; padding: 10px; }
+.voice-summary-text { font-weight: 700; color: #242833; }
+.voice-summary-speed { margin-top: 2px; color: #596171; font-size: 0.92rem; }
+.voice-expanded { display: grid; gap: 10px; }
+.voice-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.voice-panel-expanded .voice-summary { display: none; }
+.voice-panel-expanded .voice-expanded { display: grid !important; }
 .voice-row, .image-actions { display: flex; gap: 0.5rem; align-items: center; }
 .image-actions { flex-wrap: wrap; }
 .voice-row select { flex: 1; min-width: 0; }

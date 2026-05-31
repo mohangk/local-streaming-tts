@@ -9,35 +9,37 @@ import {
   historyList,
   historySearch,
   imageModeButton,
-  languageSelect,
   navButtons,
-  optionGrid,
   playPauseButton,
   playerStatus,
   readingPane,
   scrollFollow,
-  speedSelect,
   textInput,
   textLabel,
   textModeButton,
   urlInput,
   urlLabel,
   urlModeButton,
-  voiceSample,
-  voiceSelect,
-  voiceStar,
   views,
-} from "./dom.js?v=continuous-playback-1";
-import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=continuous-playback-1";
+} from "./dom.js?v=voice-controls-1";
+import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=voice-controls-1";
 import {
   buildProgressPayload,
   chooseResumeSegmentIndex,
   continuousAudioUrl,
   endedPlaybackAction,
-} from "./playback.js?v=continuous-playback-1";
-import { state } from "./state.js?v=continuous-playback-1";
-import { createPlaybackTelemetry } from "./telemetry.js?v=continuous-playback-1";
-import { escapeHtml, formatSpeed, withButtonBusy } from "./utils.js?v=continuous-playback-1";
+} from "./playback.js?v=voice-controls-1";
+import { state } from "./state.js?v=voice-controls-1";
+import { createPlaybackTelemetry } from "./telemetry.js?v=voice-controls-1";
+import { escapeHtml, formatSpeed, withButtonBusy } from "./utils.js?v=voice-controls-1";
+import {
+  clearSamplePlayback,
+  currentLanguage,
+  registerVoiceControlEvents,
+  renderVoiceControls,
+  setVoiceControlsHidden,
+  voiceGenerationPayload,
+} from "./voice-controls.js?v=voice-controls-1";
 
 const playbackTelemetry = createPlaybackTelemetry();
 
@@ -68,22 +70,9 @@ function setInputMode(mode) {
   urlInput.classList.toggle("hidden", !isUrl);
   urlLabel.classList.toggle("hidden", !isUrl);
   syncOcrInputMode(mode);
-  generateSubmitButton.classList.toggle("hidden", isImage || isDraftImages);
-  optionGrid.classList.toggle("hidden", isDraftImages);
-  voiceSample.classList.toggle("hidden", isDraftImages);
-  autoplayRow.classList.toggle("hidden", isDraftImages);
-}
-
-function currentLanguage() {
-  return languageSelect.value || state.options.default_language || "en";
-}
-
-function languageLabel(language) {
-  return { en: "English", zh: "Chinese" }[language] || language || "Auto";
-}
-
-function voiceMatchesLanguage(voice, language) {
-  return !voice.language || voice.language === language;
+  generateSubmitButton?.classList.toggle("hidden", isImage || isDraftImages);
+  setVoiceControlsHidden(isDraftImages);
+  autoplayRow?.classList.toggle("hidden", isDraftImages);
 }
 
 function recordPlaybackTelemetry(eventName, payload = {}) {
@@ -130,13 +119,6 @@ function telemetryUserAgent() {
   return "unknown";
 }
 
-function selectedVoiceOption() {
-  const language = currentLanguage();
-  return state.options.voices.find(
-    (voice) => String(voice.value) === String(voiceSelect.value) && voiceMatchesLanguage(voice, language),
-  );
-}
-
 async function submitGeneration(event) {
   event.preventDefault();
   if (state.inputMode === "image" || state.inputMode === "draft-images") {
@@ -147,10 +129,8 @@ async function submitGeneration(event) {
   state.autoplay = autoplayInput.checked;
   const payload = {
     autoplay: state.autoplay,
+    ...voiceGenerationPayload(),
   };
-  payload.voice = voiceSelect.value;
-  payload.speed = Number(speedSelect.value || "1");
-  payload.language = currentLanguage();
 
   if (isText) {
     payload.text = textInput.value.trim();
@@ -193,119 +173,7 @@ async function loadOptions() {
   } catch {
     // Keep built-in fallback options when the app starts before the API responds.
   }
-  renderOptions();
-}
-
-function renderOptions() {
-  const previousLanguage = currentLanguage();
-  const languages = Array.from(
-    new Set([
-      state.options.default_language || "en",
-      ...state.options.voices.map((voice) => voice.language).filter(Boolean),
-    ]),
-  );
-  languageSelect.innerHTML = languages
-    .map((language) => {
-      const selected = language === previousLanguage ? " selected" : "";
-      return `<option value="${escapeHtml(language)}"${selected}>${escapeHtml(languageLabel(language))}</option>`;
-    })
-    .join("");
-
-  const language = currentLanguage();
-  const voices = state.options.voices.filter((voice) => voiceMatchesLanguage(voice, language));
-  const defaultVoice = state.options.default_voices?.[language] || state.options.default_voice;
-  voiceSelect.innerHTML = voices
-    .map((voice) => {
-      const selected = voice.value === defaultVoice ? " selected" : "";
-      const prefix = voice.preferred ? "★ " : "";
-      return `<option value="${escapeHtml(voice.value)}"${selected}>${escapeHtml(prefix)}${escapeHtml(voice.label)}</option>`;
-    })
-    .join("");
-  updateVoiceStar();
-
-  speedSelect.innerHTML = state.options.speeds
-    .map((speed) => {
-      const selected = Number(speed.value) === Number(state.options.default_speed) ? " selected" : "";
-      return `<option value="${escapeHtml(speed.value)}"${selected}>${escapeHtml(speed.label)}</option>`;
-    })
-    .join("");
-}
-
-function updateVoiceStar() {
-  const voice = selectedVoiceOption();
-  const preferred = Boolean(voice?.preferred);
-  voiceStar.textContent = preferred ? "★" : "☆";
-  voiceStar.classList.toggle("active", preferred);
-  voiceStar.setAttribute("aria-pressed", preferred ? "true" : "false");
-}
-
-function clearSamplePlayback() {
-  state.samplePlayback = false;
-  if (state.sampleObjectUrl) {
-    URL.revokeObjectURL(state.sampleObjectUrl);
-    state.sampleObjectUrl = null;
-  }
-}
-
-async function toggleVoicePreference() {
-  const voice = selectedVoiceOption();
-  if (!voice) {
-    return;
-  }
-  const language = currentLanguage();
-  const preferred = !voice.preferred;
-  try {
-    const response = await fetch(`/api/voices/${encodeURIComponent(voice.value)}/preference`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ preferred, language }),
-    });
-    if (!response.ok) {
-      playerStatus.textContent = "Unable to update voice preference";
-      return;
-    }
-    state.options.voices.forEach((option) => {
-      if (String(option.value) === String(voice.value) && option.language === voice.language) {
-        option.preferred = preferred;
-      }
-    });
-    renderOptions();
-  } catch {
-    playerStatus.textContent = "Unable to update voice preference";
-  }
-}
-
-async function playVoiceSample() {
-  const voice = voiceSelect.value;
-  if (!voice) {
-    return;
-  }
-  stopPlayback();
-  try {
-    const response = await fetch("/api/voice-sample", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        voice,
-        speed: Number(speedSelect.value || "1"),
-        language: currentLanguage(),
-      }),
-    });
-    if (!response.ok) {
-      playerStatus.textContent = "Unable to load voice sample";
-      return;
-    }
-    const blob = await response.blob();
-    clearSamplePlayback();
-    state.sampleObjectUrl = URL.createObjectURL(blob);
-    state.samplePlayback = true;
-    audioPlayer.src = state.sampleObjectUrl;
-    audioPlayer.play().catch(() => {
-      playerStatus.textContent = "Tap Sample to play audio";
-    });
-  } catch {
-    playerStatus.textContent = "Unable to load voice sample";
-  }
+  renderVoiceControls();
 }
 
 async function loadHistory() {
@@ -737,10 +605,7 @@ playPauseButton.addEventListener("click", () => {
   audioPlayer.pause();
 });
 
-languageSelect.addEventListener("change", renderOptions);
-voiceSelect.addEventListener("change", updateVoiceStar);
-voiceStar.addEventListener("click", toggleVoicePreference);
-voiceSample.addEventListener("click", playVoiceSample);
+registerVoiceControlEvents({ stopPlayback });
 
 audioPlayer.addEventListener("play", () => {
   playPauseButton.textContent = "Pause";
@@ -806,8 +671,9 @@ document.addEventListener("resume", () => recordPlaybackTelemetry("page_resumed"
 
 initOcr({
   setInputMode,
-  renderOptions,
+  renderOptions: renderVoiceControls,
   currentLanguage,
+  voiceGenerationPayload,
   stopPlayback,
   openGeneration,
 });
