@@ -41,6 +41,18 @@ class FailingContinuousAudio:
         raise ContinuousAudioError("stitch failed")
 
 
+def _mp3_frame() -> bytes:
+    header = 0
+    header |= 0x7FF << 21
+    header |= 0b10 << 19
+    header |= 0b01 << 17
+    header |= 0b1 << 16
+    header |= 3 << 12
+    header |= 1 << 10
+    frame_length = 72
+    return header.to_bytes(4, "big") + bytes(frame_length - 4)
+
+
 @pytest.mark.asyncio
 async def test_generation_service_persists_segments_and_audio(test_settings):
     storage = Storage(test_settings.db_path)
@@ -64,6 +76,49 @@ async def test_generation_service_persists_segments_and_audio(test_settings):
     assert len(detail["audio_segments"]) == 2
     for audio in detail["audio_segments"]:
         assert test_settings.audio_dir in (test_settings.data_dir / audio["file_path"]).parents
+
+
+def test_generation_detail_backfills_missing_audio_durations(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    broker = EventBroker()
+    service = GenerationService(
+        storage=storage,
+        provider=FakeTTSProvider(),
+        broker=broker,
+        audio_dir=test_settings.audio_dir,
+        segment_max_chars=20,
+    )
+    generation_id = storage.create_generation(
+        source_type="text",
+        title="Manual text",
+        url=None,
+        full_text="Hello world.",
+        provider="fake",
+        voice="Test",
+        settings={},
+    )
+    storage.create_text_segments(generation_id, ["Hello world."])
+    text_segment = storage.get_generation(generation_id)["text_segments"][0]
+    audio_path = test_settings.audio_dir / str(generation_id) / "segment-0001.mp3"
+    audio_path.parent.mkdir(parents=True)
+    audio_path.write_bytes(_mp3_frame() * 10)
+    audio_id = storage.record_audio_segment(
+        generation_id=generation_id,
+        text_segment_id=text_segment["id"],
+        segment_index=0,
+        file_path=str(audio_path.relative_to(test_settings.data_dir)),
+        mime_type="audio/mpeg",
+        duration_ms=None,
+        byte_size=audio_path.stat().st_size,
+        status="completed",
+        error=None,
+    )
+
+    detail = service.get_generation_detail(generation_id)
+
+    assert detail["audio_segments"][0]["duration_ms"] == 240
+    assert storage.get_audio_segment(generation_id, audio_id)["duration_ms"] == 240
 
 
 @pytest.mark.asyncio

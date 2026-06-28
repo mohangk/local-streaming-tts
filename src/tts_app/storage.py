@@ -703,6 +703,19 @@ class Storage:
             )
             return int(cur.lastrowid)
 
+    def update_audio_segment_duration(self, audio_segment_id: int, duration_ms: int) -> None:
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE audio_segments
+                SET duration_ms = ?
+                WHERE id = ?
+                """,
+                (duration_ms, audio_segment_id),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(f"audio segment {audio_segment_id} not found")
+
     def upsert_continuous_audio_artifact(
         self,
         generation_id: int,

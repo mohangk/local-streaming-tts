@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+import anyio
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -286,7 +287,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     @app.get("/api/generations/{generation_id}")
     async def get_generation(generation_id: int):
         try:
-            return storage.get_generation(generation_id)
+            return await anyio.to_thread.run_sync(service.get_generation_detail, generation_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="generation not found") from exc
 
