@@ -136,7 +136,7 @@ class GenerationService:
             absolute_path.parent.mkdir(parents=True, exist_ok=True)
             absolute_path.write_bytes(data)
 
-            duration_ms = estimate_audio_duration_ms(data, mime_type)
+            duration_ms = estimate_audio_duration_ms(absolute_path, mime_type)
             self.storage.update_text_segment_status(int(text_segment["id"]), "completed")
             audio_id = self.storage.record_audio_segment(
                 generation_id=generation_id,
@@ -194,18 +194,3 @@ class GenerationService:
                 generation_id,
                 segment_index,
             )
-
-    def get_generation_detail(self, generation_id: int) -> dict[str, Any]:
-        detail = self.storage.get_generation(generation_id)
-        for audio_segment in detail["audio_segments"]:
-            if audio_segment["duration_ms"] is not None or audio_segment["status"] != "completed":
-                continue
-            path = self.audio_dir.parent / audio_segment["file_path"]
-            if not path.exists():
-                continue
-            duration_ms = estimate_audio_duration_ms(path.read_bytes(), audio_segment["mime_type"])
-            if duration_ms is None:
-                continue
-            self.storage.update_audio_segment_duration(int(audio_segment["id"]), duration_ms)
-            audio_segment["duration_ms"] = duration_ms
-        return detail

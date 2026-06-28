@@ -708,7 +708,8 @@ class Storage:
             cur = conn.execute(
                 """
                 UPDATE audio_segments
-                SET duration_ms = ?
+                SET duration_ms = ?,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
                 (duration_ms, audio_segment_id),

@@ -353,6 +353,36 @@ def test_generation_detail_contains_audio_after_background_task(test_settings):
     assert detail.json()["generation"]["id"] == generation_id
     assert len(detail.json()["audio_segments"]) >= 1
 
+
+def test_generation_detail_does_not_backfill_audio_duration(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "Hello.", "fake", "Test", {})
+    text_segment_id = storage.create_text_segments(generation_id, ["Hello."])[0]
+    audio_path = test_settings.audio_dir / str(generation_id) / "segment-0001.mp3"
+    audio_path.parent.mkdir(parents=True)
+    audio_path.write_bytes(b"not an mp3")
+    audio_id = storage.record_audio_segment(
+        generation_id=generation_id,
+        text_segment_id=text_segment_id,
+        segment_index=0,
+        file_path=str(audio_path.relative_to(test_settings.data_dir)),
+        mime_type="audio/mpeg",
+        duration_ms=None,
+        byte_size=audio_path.stat().st_size,
+        status="completed",
+        error=None,
+    )
+    app = create_app(settings=test_settings)
+    client = TestClient(app)
+
+    response = client.get(f"/api/generations/{generation_id}")
+
+    assert response.status_code == 200
+    assert response.json()["audio_segments"][0]["duration_ms"] is None
+    assert Storage(test_settings.db_path).get_audio_segment(generation_id, audio_id)["duration_ms"] is None
+
+
 async def test_inline_generation_completes_before_response_body_is_sent(test_settings):
     app = create_app(settings=test_settings, run_background_inline=True)
     body = json.dumps({"text": "Hello world.", "title": "Note"}).encode("utf-8")

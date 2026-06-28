@@ -90,7 +90,13 @@ Add SQLite metadata in a `continuous_audio_artifacts` table:
 
 The existing `audio_segments.byte_size` values can be used to compute segment boundary byte offsets for first-pass playback because `full.mp3` is a byte-for-byte concatenation of segment files in segment order. If a later remux/finalization step rewrites the file, it must also replace or invalidate any offset assumptions.
 
-The existing `audio_segments.duration_ms` field should be populated for generated MP3 segments when possible. Older rows may have null durations, so generation detail loading can lazily backfill missing durations from completed segment files and persist the result. Duration extraction belongs in generation/audio metadata code, not the provider interface or frontend.
+The existing `audio_segments.duration_ms` field should be populated for generated MP3 segments when possible. Older rows may have null durations, so an explicit maintenance utility can backfill missing durations from completed segment files and persist the result:
+
+```bash
+python -m tts_app.audio_backfill
+```
+
+Duration extraction belongs in generation/audio metadata code, not the provider interface or frontend. Generation detail loading should remain a read path and should not mutate duration metadata.
 
 Segment duration metadata is used for UI progress and highlighting only. It is not a new source of truth for generated audio bytes; segment MP3 files and stitched artifact metadata remain the durable playback sources.
 
@@ -186,7 +192,7 @@ Frontend tests should assert:
 Generation/audio metadata tests should assert:
 
 - MP3 segment duration extraction works for parseable MP3 frames and ignores unparseable audio
-- generation detail loading backfills missing `duration_ms` for completed segment files without regenerating audio
+- the explicit audio duration backfill path updates missing `duration_ms` for completed segment files without regenerating audio
 
 ## Open Follow-Up
 

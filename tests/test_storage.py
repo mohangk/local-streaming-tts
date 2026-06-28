@@ -62,6 +62,32 @@ def test_audio_segment_round_trip(test_settings):
     assert detail["audio_segments"][0]["status"] == "completed"
 
 
+def test_update_audio_segment_duration_refreshes_timestamp(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation("text", "Manual text", None, "Hello.", "fake", "Test", {})
+    text_segment_id = storage.create_text_segments(generation_id, ["Hello."])[0]
+    audio_id = storage.record_audio_segment(
+        generation_id=generation_id,
+        text_segment_id=text_segment_id,
+        segment_index=0,
+        file_path="data/audio/abc/segment-0001.mp3",
+        mime_type="audio/mpeg",
+        duration_ms=None,
+        byte_size=12,
+        status="completed",
+        error=None,
+    )
+    with storage.connection() as conn:
+        conn.execute("UPDATE audio_segments SET updated_at = '2000-01-01 00:00:00' WHERE id = ?", (audio_id,))
+
+    storage.update_audio_segment_duration(audio_id, 1234)
+
+    audio = storage.get_audio_segment(generation_id, audio_id)
+    assert audio["duration_ms"] == 1234
+    assert audio["updated_at"] != "2000-01-01 00:00:00"
+
+
 def test_list_completed_audio_segments_for_stitching(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()

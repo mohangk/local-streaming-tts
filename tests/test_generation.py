@@ -7,6 +7,7 @@ from typing import AsyncIterator
 import pytest
 
 from tts_app.events import EventBroker
+from tts_app.audio_backfill import backfill_audio_segment_durations
 from tts_app.continuous_audio import ContinuousAudioError
 from tts_app.generation import GenerationService
 from tts_app.providers.base import AudioChunk, ProviderError, TTSOptions
@@ -78,17 +79,9 @@ async def test_generation_service_persists_segments_and_audio(test_settings):
         assert test_settings.audio_dir in (test_settings.data_dir / audio["file_path"]).parents
 
 
-def test_generation_detail_backfills_missing_audio_durations(test_settings):
+def test_audio_duration_backfill_updates_missing_audio_durations(test_settings):
     storage = Storage(test_settings.db_path)
     storage.init_schema()
-    broker = EventBroker()
-    service = GenerationService(
-        storage=storage,
-        provider=FakeTTSProvider(),
-        broker=broker,
-        audio_dir=test_settings.audio_dir,
-        segment_max_chars=20,
-    )
     generation_id = storage.create_generation(
         source_type="text",
         title="Manual text",
@@ -115,10 +108,60 @@ def test_generation_detail_backfills_missing_audio_durations(test_settings):
         error=None,
     )
 
-    detail = service.get_generation_detail(generation_id)
+    result = backfill_audio_segment_durations(storage, test_settings.data_dir)
 
-    assert detail["audio_segments"][0]["duration_ms"] == 240
-    assert storage.get_audio_segment(generation_id, audio_id)["duration_ms"] == 240
+    assert result.scanned == 1
+    assert result.updated == 1
+    assert result.skipped_missing_file == 0
+    assert result.skipped_unparseable == 0
+    assert storage.get_audio_segment(generation_id, audio_id)["duration_ms"] > 0
+
+
+def test_audio_duration_backfill_reports_missing_and_unparseable_files(test_settings):
+    storage = Storage(test_settings.db_path)
+    storage.init_schema()
+    generation_id = storage.create_generation(
+        source_type="text",
+        title="Manual text",
+        url=None,
+        full_text="One. Two.",
+        provider="fake",
+        voice="Test",
+        settings={},
+    )
+    first_segment_id, second_segment_id = storage.create_text_segments(generation_id, ["One.", "Two."])
+    bad_path = test_settings.audio_dir / str(generation_id) / "segment-0002.mp3"
+    bad_path.parent.mkdir(parents=True)
+    bad_path.write_bytes(b"not an mp3")
+    storage.record_audio_segment(
+        generation_id=generation_id,
+        text_segment_id=first_segment_id,
+        segment_index=0,
+        file_path=f"audio/{generation_id}/missing.mp3",
+        mime_type="audio/mpeg",
+        duration_ms=None,
+        byte_size=10,
+        status="completed",
+        error=None,
+    )
+    storage.record_audio_segment(
+        generation_id=generation_id,
+        text_segment_id=second_segment_id,
+        segment_index=1,
+        file_path=str(bad_path.relative_to(test_settings.data_dir)),
+        mime_type="audio/mpeg",
+        duration_ms=None,
+        byte_size=bad_path.stat().st_size,
+        status="completed",
+        error=None,
+    )
+
+    result = backfill_audio_segment_durations(storage, test_settings.data_dir)
+
+    assert result.scanned == 2
+    assert result.updated == 0
+    assert result.skipped_missing_file == 1
+    assert result.skipped_unparseable == 1
 
 
 @pytest.mark.asyncio
