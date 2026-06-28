@@ -11,6 +11,7 @@ export const state = {
   currentGenerationId: null,
   currentDetail: null,
   currentSegmentIndex: 0,
+  continuousPlaybackStartSegmentIndex: null,
   eventSource: null,
   samplePlayback: false,
   sampleObjectUrl: null,

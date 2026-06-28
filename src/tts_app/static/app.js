@@ -21,17 +21,19 @@ import {
   urlLabel,
   urlModeButton,
   views,
-} from "./dom.js?v=voice-controls-1";
-import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=voice-controls-1";
+} from "./dom.js?v=playback-progress-1";
+import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=playback-progress-1";
 import {
   buildProgressPayload,
   chooseResumeSegmentIndex,
   continuousAudioUrl,
+  createQueuedProgressSaver,
   endedPlaybackAction,
-} from "./playback.js?v=voice-controls-1";
-import { state } from "./state.js?v=voice-controls-1";
-import { createPlaybackTelemetry } from "./telemetry.js?v=voice-controls-1";
-import { escapeHtml, formatSpeed, withButtonBusy } from "./utils.js?v=voice-controls-1";
+  estimateContinuousSegmentIndex,
+} from "./playback.js?v=playback-progress-1";
+import { state } from "./state.js?v=playback-progress-1";
+import { createPlaybackTelemetry } from "./telemetry.js?v=playback-progress-1";
+import { escapeHtml, formatSpeed, withButtonBusy } from "./utils.js?v=playback-progress-1";
 import {
   clearSamplePlayback,
   currentLanguage,
@@ -39,9 +41,10 @@ import {
   renderVoiceControls,
   setVoiceControlsHidden,
   voiceGenerationPayload,
-} from "./voice-controls.js?v=voice-controls-1";
+} from "./voice-controls.js?v=playback-progress-1";
 
 const playbackTelemetry = createPlaybackTelemetry();
+const enqueueProgressSave = createQueuedProgressSaver(persistProgress);
 
 function showView(viewId) {
   views.forEach((view) => {
@@ -289,6 +292,7 @@ async function openGeneration(generationId, options = {}) {
     state.currentDetail = null;
     state.currentGenerationId = generationId;
     state.currentSegmentIndex = 0;
+    state.continuousPlaybackStartSegmentIndex = null;
     state.autoplay = Boolean(settings.autoplay);
     state.continuousPlayback = state.autoplay;
     showView("playback-view");
@@ -351,6 +355,7 @@ function resetPlaybackState(message) {
   state.currentGenerationId = null;
   state.currentDetail = null;
   state.currentSegmentIndex = 0;
+  state.continuousPlaybackStartSegmentIndex = null;
   readingPane.innerHTML = "";
   playerStatus.textContent = message;
 }
@@ -358,6 +363,7 @@ function resetPlaybackState(message) {
 function stopPlayback() {
   state.autoplay = false;
   state.continuousPlayback = false;
+  state.continuousPlaybackStartSegmentIndex = null;
   audioPlayer.pause();
   audioPlayer.removeAttribute("src");
   audioPlayer.load();
@@ -463,6 +469,7 @@ function audioSegmentForIndex(segmentIndex) {
 function playSegment(segmentIndex) {
   const audio = audioSegmentForIndex(segmentIndex);
   state.currentSegmentIndex = segmentIndex;
+  state.continuousPlaybackStartSegmentIndex = segmentIndex;
   updateActiveSegment();
   updatePlayerStatus();
   recordPlaybackTelemetry("segment_play_attempted");
@@ -479,11 +486,19 @@ function playSegment(segmentIndex) {
   });
 }
 
-async function saveProgress(segmentIndex, options = {}) {
-  if (!state.currentGenerationId) {
+function saveProgress(segmentIndex, options = {}) {
+  return enqueueProgressSave({
+    generationId: state.currentGenerationId,
+    detailGenerationId: state.currentDetail?.generation?.id ?? null,
+    segmentIndex,
+    options,
+  });
+}
+
+async function persistProgress({ generationId, detailGenerationId, segmentIndex, options = {} }) {
+  if (!generationId) {
     return;
   }
-  const generationId = state.currentGenerationId;
   const payload = buildProgressPayload(segmentIndex, options);
   try {
     recordPlaybackTelemetry("progress_save_attempted", payload);
@@ -495,7 +510,8 @@ async function saveProgress(segmentIndex, options = {}) {
     if (
       response.ok &&
       state.currentGenerationId === generationId &&
-      state.currentDetail?.generation?.id === generationId
+      detailGenerationId === generationId &&
+      state.currentDetail?.generation?.id === detailGenerationId
     ) {
       const progress = await response.json();
       state.currentDetail.generation.last_segment_index = progress.last_segment_index;
@@ -509,6 +525,29 @@ async function saveProgress(segmentIndex, options = {}) {
     recordPlaybackTelemetry("progress_save_failed");
     // Playback should continue even if progress cannot be saved.
   }
+}
+
+function updateContinuousPlaybackSegment() {
+  if (state.samplePlayback || !state.continuousPlayback || !state.currentDetail) {
+    return;
+  }
+
+  const nextSegmentIndex = estimateContinuousSegmentIndex({
+    currentTime: audioPlayer.currentTime,
+    duration: audioPlayer.duration,
+    startSegmentIndex: state.continuousPlaybackStartSegmentIndex ?? state.currentSegmentIndex,
+    totalSegments: state.currentDetail.text_segments.length,
+    audioSegments: state.currentDetail.audio_segments,
+  });
+
+  if (nextSegmentIndex === state.currentSegmentIndex) {
+    return;
+  }
+
+  state.currentSegmentIndex = nextSegmentIndex;
+  updateActiveSegment();
+  updatePlayerStatus();
+  saveProgress(nextSegmentIndex);
 }
 
 function updateActiveSegment() {
@@ -618,6 +657,8 @@ audioPlayer.addEventListener("pause", () => {
   recordPlaybackTelemetry("audio_pause");
   releaseWakeLock();
 });
+
+audioPlayer.addEventListener("timeupdate", updateContinuousPlaybackSegment);
 
 audioPlayer.addEventListener("ended", () => {
   const action = endedPlaybackAction({

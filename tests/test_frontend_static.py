@@ -95,15 +95,15 @@ def test_frontend_voice_sample_path_does_not_record_playback_telemetry():
     assert "state.samplePlayback = true" in sampler
 
 
-def test_frontend_static_asset_version_bumped_for_voice_controls():
+def test_frontend_static_asset_version_bumped_for_playback_progress():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     sources = [html, *((STATIC_DIR / filename).read_text(encoding="utf-8") for filename in JS_FILES)]
 
-    assert 'href="/static/styles.css?v=voice-controls-1"' in html
-    assert 'src="/static/app.js?v=voice-controls-1"' in html
-    assert "voice-controls-1" in (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    assert "voice-controls-1" in (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
-    assert "voice-controls-1" in (STATIC_DIR / "voice-controls.js").read_text(encoding="utf-8")
+    assert 'href="/static/styles.css?v=playback-progress-1"' in html
+    assert 'src="/static/app.js?v=playback-progress-1"' in html
+    assert "playback-progress-1" in (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    assert "playback-progress-1" in (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
+    assert "playback-progress-1" in (STATIC_DIR / "voice-controls.js").read_text(encoding="utf-8")
     for source in sources:
         assert "continuous-playback-1" not in source
         assert "playback-vitest-1" not in source
@@ -486,9 +486,10 @@ def test_frontend_javascript_ended_handler_respects_continuous_playback():
 
 def test_frontend_generated_playback_uses_continuous_audio_endpoint():
     js = frontend_js()
-    play_segment = js.split("function playSegment(segmentIndex)", 1)[1].split("async function saveProgress", 1)[0]
+    play_segment = js.split("function playSegment(segmentIndex)", 1)[1].split("function saveProgress", 1)[0]
 
     assert "continuousAudioUrl" in js
+    assert "estimateContinuousSegmentIndex" in js
     assert "audioPlayer.src = continuousAudioUrl(state.currentGenerationId, segmentIndex)" in play_segment
     assert "audioPlayer.src = `/api/audio/" not in play_segment
 
@@ -595,9 +596,21 @@ def test_frontend_history_delete_calls_delete_endpoint():
 
 def test_frontend_playback_updates_progress():
     js = frontend_js()
+    updater = js.split("function updateContinuousPlaybackSegment()", 1)[1].split(
+        "function updateActiveSegment", 1
+    )[0]
 
-    assert "async function saveProgress" in js
+    assert "function saveProgress" in js
+    assert "createQueuedProgressSaver" in js
+    assert "const enqueueProgressSave = createQueuedProgressSaver(persistProgress)" in js
+    assert "generationId: state.currentGenerationId" in js
+    assert "detailGenerationId: state.currentDetail?.generation?.id ?? null" in js
+    assert "async function persistProgress" in js
     assert "saveProgress(segmentIndex)" in js
+    assert 'audioPlayer.addEventListener("timeupdate", updateContinuousPlaybackSegment)' in js
+    assert "estimateContinuousSegmentIndex({" in updater
+    assert "state.continuousPlaybackStartSegmentIndex ?? state.currentSegmentIndex" in updater
+    assert "saveProgress(nextSegmentIndex)" in updater
     assert "completed: true" in js
 
 

@@ -11,9 +11,9 @@ import {
   voiceStar,
   voiceSummarySpeed,
   voiceSummaryText,
-} from "./dom.js?v=voice-controls-1";
-import { state } from "./state.js?v=voice-controls-1";
-import { escapeHtml, formatSpeed } from "./utils.js?v=voice-controls-1";
+} from "./dom.js?v=playback-progress-1";
+import { state } from "./state.js?v=playback-progress-1";
+import { escapeHtml, formatSpeed } from "./utils.js?v=playback-progress-1";
 
 export const VOICE_SELECTION_STORAGE_KEY = "readvox.voiceSelection.v1";
 
