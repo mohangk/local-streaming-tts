@@ -1,32 +1,90 @@
 # Readvox
 
-Readvox is a local, mobile-first web app for generating streamed text-to-speech audio from pasted text or basic HTML page URLs.
+Readvox is a local-first, mobile-friendly web app for turning long text, article URLs, and reviewed OCR drafts into streamed text-to-speech audio. It is designed for personal use on a trusted machine: run it on localhost, optionally expose it through a private HTTPS proxy, and keep the generated audio, source text, OCR images, and playback progress in local storage.
 
-## Setup
+The app focuses on long-form reading. It generates audio incrementally so playback can begin before the whole article is complete, then stitches completed segment audio into a continuous playback stream so mobile browsers do not have to switch audio files while the page is in the background.
+
+## Features
+
+- Generate speech from pasted text.
+- Fetch and extract simple HTML article URLs.
+- Upload or capture page images, review OCR output, then generate audio from the reviewed text.
+- Choose language, voice, speed, and cached voice samples.
+- Play long articles through one continuous audio endpoint backed by incrementally stitched MP3 segments.
+- Track segment-based progress and keep the currently read text highlighted during continuous playback.
+- Resume and delete History entries, including cached audio and linked OCR source images.
+- Store playback telemetry locally in SQLite for debugging mobile/background playback failures.
+- Run with deterministic fake providers for tests and local UI checks, or Qwen providers for real TTS/OCR.
+
+## How It Works
+
+```mermaid
+flowchart LR
+    UI[Mobile web UI] --> API[FastAPI app]
+    API --> Store[(SQLite metadata)]
+    API --> Files[Local data directory]
+    API --> TTS[TTS provider]
+    API --> OCR[OCR provider]
+
+    UI -->|text or URL| Gen[Generation service]
+    UI -->|images| Draft[OCR draft review]
+    Draft --> Gen
+
+    Gen --> Segments[Text segments]
+    Segments --> TTS
+    TTS --> AudioSeg[segment-0001.mp3 ...]
+    AudioSeg --> Stitcher[Continuous audio stitcher]
+    Stitcher --> Full[full.mp3 artifact]
+
+    UI -->|/continuous-audio?start_segment=N| Playback[Continuous playback route]
+    Playback --> Full
+    Playback --> Store
+```
+
+The database owns metadata and relationships. The filesystem owns bytes:
+
+- SQLite: generations, text segments, audio segment metadata, continuous audio artifact metadata, OCR drafts/images, voice preferences, and playback telemetry.
+- `data/audio/<generation_id>/`: generated segment MP3s plus `full.mp3`.
+- `data/images/<ocr_draft_id>/`: stored source images for OCR drafts.
+
+For the exact current database shape, see [docs/schema.sql](docs/schema.sql). For relationship notes and cleanup semantics, see [docs/data-model.md](docs/data-model.md). For module boundaries and future development guidance, see [docs/architecture.md](docs/architecture.md).
+
+## Quick Start
 
 ```bash
 python -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
+TTS_PROVIDER=fake .venv/bin/uvicorn tts_app.api:create_app --factory --host 127.0.0.1 --port 8001
 ```
 
-## Run
+Open `http://127.0.0.1:8001`.
+
+Use the fake provider for development and tests. It writes deterministic audio-like files and does not call external services.
+
+## Real Providers
+
+Readvox currently supports Qwen realtime TTS and Qwen OCR through provider adapters.
 
 ```bash
-.venv/bin/uvicorn tts_app.api:create_app --factory --host 127.0.0.1 --port 8001
+TTS_PROVIDER=qwen
+OCR_PROVIDER=qwen
+DASHSCOPE_API_KEY=...
+TTS_MODEL=qwen3-tts-flash-realtime
+OCR_MODEL=qwen-vl-ocr
+QWEN_REALTIME_URL=wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime
+TTS_DEFAULT_ENGLISH_VOICE=Jennifer
+TTS_DEFAULT_CHINESE_VOICE=Cherry
 ```
 
-Open `http://127.0.0.1:8001` locally.
+Provider setup, pricing notes, and environment variables live in [docs/configuration.md](docs/configuration.md).
 
-## Development Start
+## Local Development
 
-Use this while actively editing the app. `--reload` restarts the Python process when files under `src/` change.
+Run with reload while editing:
 
 ```bash
-cd /home/mohan/tts
-
-TTS_PROVIDER=qwen \
-.venv/bin/uvicorn tts_app.api:create_app \
+TTS_PROVIDER=fake .venv/bin/uvicorn tts_app.api:create_app \
   --factory \
   --reload \
   --reload-dir src \
@@ -35,124 +93,7 @@ TTS_PROVIDER=qwen \
   --log-level info
 ```
 
-Open `http://127.0.0.1:8001` locally, or use your private HTTPS proxy URL if you have one configured.
-
-To keep application and access logs in a file while still seeing them in the terminal:
-
-```bash
-mkdir -p logs
-TTS_PROVIDER=qwen .venv/bin/uvicorn tts_app.api:create_app --factory --reload --reload-dir src --host 127.0.0.1 --port 8001 --log-level info 2>&1 | tee -a logs/app.log
-```
-
-## Systemd Deployment
-
-Versioned VPS deployment files live in `setup/`, matching the pattern used by
-the companion local services on the host:
-
-- `setup/tts.service`: source-of-truth systemd unit for `/etc/systemd/system/tts.service`
-- `setup/envrc.local.example`: environment file template for `/home/mohan/tts/.envrc.local`
-- `setup/setup-venv.sh`: creates `.venv` and installs Python dependencies
-- `setup/install-service.sh`: installs/enables the systemd service
-- `setup/README.md`: install, update, diagnostics, and recovery commands
-
-Prepare the Python environment, then install or update the unit:
-
-```bash
-setup/setup-venv.sh
-setup/install-service.sh
-```
-
-Manual equivalent:
-
-```bash
-sudo install -m 0644 setup/tts.service /etc/systemd/system/tts.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now tts
-```
-
-Set the Qwen API key in `/home/mohan/tts/.envrc.local`:
-
-```bash
-DASHSCOPE_API_KEY=<your-key>
-```
-
-## Trust Boundary
-
-URL generation fetches pages server-side from the host running this app. When exposing the app beyond localhost, only grant access to trusted devices and users: anyone who can use the app can ask the host to fetch arbitrary HTTP(S) URLs reachable from that machine.
-
-## Development Provider
-
-The default provider is `fake`, which writes deterministic small audio-like files and does not call an external API.
-
-```bash
-TTS_PROVIDER=fake .venv/bin/uvicorn tts_app.api:create_app --factory --reload --host 127.0.0.1 --port 8001
-```
-
-## Qwen Provider Configuration
-
-```bash
-TTS_PROVIDER=qwen
-DASHSCOPE_API_KEY=...
-TTS_MODEL=qwen3-tts-flash-realtime
-QWEN_REALTIME_URL=wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime
-TTS_DEFAULT_ENGLISH_VOICE=Jennifer
-TTS_DEFAULT_CHINESE_VOICE=Cherry
-```
-
-The Generate page loads language-aware Qwen voice choices and speed presets from `/api/options`. The selected voice and speed are stored with each generation.
-
-TODO: update existing `.envrc.local` deployments to use `TTS_MODEL`, `OCR_MODEL`, and `OCR_PROVIDER=qwen`, and remove old `QWEN_MODEL`, `QWEN_OCR_MODEL`, and `QWEN_VOICE` entries.
-
-## OCR Image Mode
-
-Image mode lets you upload or capture one or more photographed/scanned pages, review the OCR text beside image thumbnails, choose an English or Chinese voice, and create one normal streamed generation from the combined reviewed text. Uploaded source images are stored under `data/images/` by default while their OCR draft exists. Deleting an unlinked OCR draft removes its stored image directory; deleting a History entry created from an OCR draft removes the generation, cached audio, linked OCR draft, and stored image directory.
-
-Voice samples are streamed directly from the provider so you can preview voice and speed choices before generating. They do not create History entries or cached generation audio.
-
-OCR and image settings:
-
-```bash
-OCR_PROVIDER=fake
-OCR_MODEL=qwen-vl-ocr
-TTS_IMAGE_DIR=data/images
-TTS_MAX_IMAGE_BYTES=10485760
-TTS_DEFAULT_ENGLISH_VOICE=Jennifer
-TTS_DEFAULT_CHINESE_VOICE=Cherry
-```
-
-Use `OCR_PROVIDER=fake` for tests and local UI checks. Use `OCR_PROVIDER=qwen` with `DASHSCOPE_API_KEY` or `QWEN_API_KEY` when calling Qwen OCR.
-
-## Pricing Context
-
-Alibaba Cloud Model Studio pricing is documented at <https://www.alibabacloud.com/help/en/model-studio/model-pricing>. The pricing page was last updated by Alibaba on Apr 01, 2026.
-
-For the app's current default realtime TTS model, `qwen3-tts-flash-realtime`, the relevant text-to-speech pricing captured on May 02, 2026 is:
-
-| Deployment mode | Model | Billing unit | Input price | Output price | Free quota |
-| --- | --- | --- | --- | --- | --- |
-| International | `qwen3-tts-flash-realtime` | Input text characters | `$0.13 / 10K characters` | Not billed | 10,000 characters, valid 90 days after activating Model Studio |
-| Chinese Mainland | `qwen3-tts-flash-realtime` | Input text characters | `$0.143353 / 10K characters` | Not charged | No free quota |
-
-Future cost tracking should store the model, deployment mode, input character count, pricing source date, and calculated estimated cost per generation. Pricing can change, so keep this as a documented baseline rather than hard-coding it as permanent billing truth.
-
-## History And Playback
-
-Generated entries are persisted in SQLite with the full extracted or pasted text, provider, voice, speed, URL when applicable, cached audio metadata, and segment-based playback progress. Regenerating the same text or URL with a different voice or speed creates a separate history entry and a separate cached audio directory.
-
-History entries can be deleted from the UI. Deletion removes the database row, cascades text/audio segment metadata, and removes cached audio files for that generation. Image History deletion also removes the linked OCR draft and stored source images under `data/images/`.
-
-## Application Logging
-
-Uvicorn access logs show HTTP requests. The app also emits structured application logs through Python's standard `logging` module under `tts_app.api` and `tts_app.generation`. These include generation submission, URL extraction failures, generation start/completion/failure, segment start/completion/failure, playback progress updates, and deletion.
-
-In development, run with Uvicorn log level `info` and pipe stdout/stderr if you want a file:
-
-```bash
-mkdir -p logs
-TTS_PROVIDER=qwen .venv/bin/uvicorn tts_app.api:create_app --factory --reload --reload-dir src --host 127.0.0.1 --port 8001 --log-level info 2>&1 | tee -a logs/app.log
-```
-
-## Tests
+Run checks before claiming work is complete:
 
 ```bash
 .venv/bin/pytest -q
@@ -161,16 +102,33 @@ npm run lint:js
 npm run test:js
 ```
 
-## Verification Checklist
+## Deployment And Operations
 
-1. Run `pytest`.
-2. Run `TTS_PROVIDER=fake .venv/bin/uvicorn tts_app.api:create_app --factory --host 127.0.0.1 --port 8001`.
-3. Open `http://127.0.0.1:8001`.
-4. Paste text with multiple sentences and generate audio.
-5. Confirm segments appear in Playback.
-6. Tap a text segment and confirm playback jumps to that segment.
-7. Open History and confirm the generation is listed.
-8. Reopen the item from History and confirm cached segments are still available.
-9. Try a basic HTML URL and confirm extracted text appears in Playback.
-10. Confirm History shows URL, voice, speed, and progress details.
-11. Delete a history entry and confirm it disappears.
+The intended deployment is still local-first:
+
+- Bind Readvox to `127.0.0.1:8001`.
+- Put a private HTTPS proxy in front only for trusted devices.
+- Do not expose the app publicly; URL generation lets users ask the host to fetch arbitrary reachable HTTP(S) URLs.
+
+Systemd deployment files live under `setup/`, and the deployment runbook is [docs/deployment.md](docs/deployment.md). Logging and manual verification notes are in [docs/operations.md](docs/operations.md).
+
+## Project Map
+
+- `src/tts_app/api.py`: FastAPI app factory and shared top-level API routes.
+- `src/tts_app/routes/`: feature route groups such as playback and OCR.
+- `src/tts_app/storage.py`: SQLite schema, migrations, and persistence operations.
+- `src/tts_app/generation.py`: text segmentation, provider streaming, audio caching, and duration backfill.
+- `src/tts_app/continuous_audio.py`: stitched generation-level audio artifact builder.
+- `src/tts_app/providers/`: TTS provider interface, fake provider, and Qwen realtime implementation.
+- `src/tts_app/ocr_providers/`: OCR provider interface, fake provider, and Qwen OCR implementation.
+- `src/tts_app/static/`: framework-free frontend modules.
+- `tests/`: API, storage, generation, provider, OCR, frontend static, and Vitest coverage.
+
+## Further Reading
+
+- [Architecture](docs/architecture.md)
+- [Data model](docs/data-model.md)
+- [Current SQLite schema](docs/schema.sql)
+- [Configuration and providers](docs/configuration.md)
+- [Deployment](docs/deployment.md)
+- [Operations](docs/operations.md)
