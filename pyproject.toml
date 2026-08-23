@@ -34,3 +34,6 @@ tts_app = ["static/*.html", "static/*.css", "static/*.js"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+markers = [
+  "live_provider: calls a paid external provider and requires explicit credentials",
+]
