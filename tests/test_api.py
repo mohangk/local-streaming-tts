@@ -13,6 +13,7 @@ from tts_app.extractor import ExtractedText
 from tts_app.providers.base import AudioChunk, ProviderError, TTSOptions
 from tts_app.providers.options import SelectOption
 from tts_app.storage import Storage
+from tts_app.voice_samples import VoiceSampleCacheError
 
 
 class CapturingTTSProvider:
@@ -156,7 +157,7 @@ def test_voice_sample_returns_audio_without_creating_history(test_settings, monk
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/")
-    assert response.content == b"sample-audio"
+    assert response.content == b"sample-audio" * len(provider.calls)
     assert client.get("/api/generations").json() == []
     assert list((test_settings.audio_dir / "voice-samples").glob("*.mp3"))
     text, options = provider.calls[0]
@@ -200,13 +201,14 @@ def test_voice_sample_reuses_cached_audio(test_settings, monkeypatch):
     client = TestClient(create_app(test_settings, run_background_inline=True))
 
     first = client.post("/api/voice-sample", json={"voice": "Jennifer", "speed": 1.25, "language": "en"})
+    calls_after_first = len(provider.calls)
     second = client.post("/api/voice-sample", json={"voice": "Jennifer", "speed": 1.25, "language": "en"})
 
     assert first.status_code == 200
     assert second.status_code == 200
-    assert first.content == b"sample-audio"
-    assert second.content == b"sample-audio"
-    assert len(provider.calls) == 1
+    assert first.content == b"sample-audio" * calls_after_first
+    assert second.content == first.content
+    assert len(provider.calls) == calls_after_first
     assert len(list((test_settings.audio_dir / "voice-samples").glob("*.mp3"))) == 1
 
 
@@ -220,7 +222,7 @@ def test_voice_sample_cache_key_includes_speed(test_settings, monkeypatch):
 
     assert normal.status_code == 200
     assert faster.status_code == 200
-    assert len(provider.calls) == 2
+    assert len(provider.calls) > 2
     assert {call[1].speed for call in provider.calls} == {1.0, 1.25}
     assert len(list((test_settings.audio_dir / "voice-samples").glob("*.mp3"))) == 2
 
@@ -236,6 +238,361 @@ def test_voice_sample_failure_does_not_cache_partial_file(test_settings, monkeyp
     cache_dir = test_settings.audio_dir / "voice-samples"
     assert not list(cache_dir.glob("*.mp3"))
     assert not list(cache_dir.glob("*.tmp.*"))
+
+
+def test_instruction_voice_sample_options_only_offer_compatible_voices(test_settings):
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.get("/api/voice-sample/options")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "default_language": "en",
+        "default_model": "qwen3-tts-instruct-flash-realtime",
+        "default_speed": 1.0,
+        "default_voice": "Kai",
+        "languages": [
+            {"label": "English", "value": "en"},
+            {"label": "Chinese", "value": "zh"},
+        ],
+        "models": [
+            {
+                "label": "Qwen3 TTS Instruct Flash Realtime",
+                "value": "qwen3-tts-instruct-flash-realtime",
+            },
+            {
+                "label": "Qwen3 TTS Instruct Flash Realtime 2026-01-22",
+                "value": "qwen3-tts-instruct-flash-realtime-2026-01-22",
+            },
+        ],
+        "speeds": [
+            {"label": "0.75x", "value": 0.75},
+            {"label": "0.9x", "value": 0.9},
+            {"label": "1x", "value": 1.0},
+            {"label": "1.1x", "value": 1.1},
+            {"label": "1.25x", "value": 1.25},
+            {"label": "1.5x", "value": 1.5},
+        ],
+        "voices": [
+            {"label": "Cherry - friendly natural woman", "value": "Cherry"},
+            {"label": "Serena - gentle young woman", "value": "Serena"},
+            {"label": "Ethan - warm energetic man", "value": "Ethan"},
+            {"label": "Chelsie - bright animated woman", "value": "Chelsie"},
+            {"label": "Momo - playful woman", "value": "Momo"},
+            {"label": "Vivian - confident woman", "value": "Vivian"},
+            {"label": "Moon - bold man", "value": "Moon"},
+            {"label": "Maia - gentle thoughtful woman", "value": "Maia"},
+            {"label": "Kai - soothing man", "value": "Kai"},
+            {"label": "Nofish - casual man", "value": "Nofish"},
+            {"label": "Bella - playful young woman", "value": "Bella"},
+            {"label": "Eldric Sage - calm wise elder", "value": "Eldric Sage"},
+            {"label": "Mia - soft gentle woman", "value": "Mia"},
+            {"label": "Mochi - quick-witted man", "value": "Mochi"},
+            {"label": "Bellona - powerful clear voice", "value": "Bellona"},
+            {"label": "Vincent - raspy heroic man", "value": "Vincent"},
+            {"label": "Bunny - playful young girl", "value": "Bunny"},
+            {"label": "Neil - precise professional man", "value": "Neil"},
+            {"label": "Elias - academic storyteller", "value": "Elias"},
+            {"label": "Arthur - earthy storyteller", "value": "Arthur"},
+            {"label": "Nini - soft sweet woman", "value": "Nini"},
+            {"label": "Seren - gentle soothing woman", "value": "Seren"},
+            {"label": "Pip - playful young boy", "value": "Pip"},
+            {"label": "Stella - expressive young woman", "value": "Stella"},
+        ],
+    }
+
+
+def test_instruction_voice_sample_returns_audio_without_creating_history(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/voice-sample/instruction",
+        json={
+            "model": "qwen3-tts-instruct-flash-realtime",
+            "voice": "Kai",
+            "speed": 0.9,
+            "language": "en",
+            "sample_text": "This dense paragraph tests whether a voice remains comfortable for long-form listening.",
+            "instructions": "Read in a calm long-form audiobook style.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/")
+    assert response.content == b"sample-audio" * len(provider.calls)
+    assert client.get("/api/generations").json() == []
+    assert " ".join(text for text, _options in provider.calls) == (
+        "This dense paragraph tests whether a voice remains comfortable for long-form listening."
+    )
+    for _text, options in provider.calls:
+        assert options.voice == "Kai"
+        assert options.speed == 0.9
+        assert options.language == "English"
+        assert options.instructions == "Read in a calm long-form audiobook style."
+    assert len(list((test_settings.audio_dir / "voice-samples").glob("*.mp3"))) == 1
+
+
+def test_instruction_voice_sample_segments_long_text_into_one_audio_response(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    sample_text = "A complete sentence for long sample testing. " * 60
+
+    response = client.post(
+        "/api/voice-sample/instruction",
+        json={
+            "model": "qwen3-tts-instruct-flash-realtime",
+            "voice": "Kai",
+            "speed": 1.0,
+            "language": "en",
+            "sample_text": sample_text,
+            "instructions": "Calm audiobook narration.",
+        },
+    )
+
+    assert len(sample_text) > 2_000
+    assert response.status_code == 200
+    assert len(provider.calls) > 1
+    assert all(len(text) <= test_settings.segment_max_chars for text, _ in provider.calls)
+    assert response.content == b"sample-audio" * len(provider.calls)
+    assert len(list((test_settings.audio_dir / "voice-samples").glob("*.mp3"))) == 1
+
+
+def test_instruction_voice_sample_cache_key_includes_model_text_and_instructions(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    base_payload = {
+        "model": "qwen3-tts-instruct-flash-realtime",
+        "voice": "Kai",
+        "speed": 1.0,
+        "language": "en",
+        "sample_text": "First sample text.",
+        "instructions": "Calm audiobook narration.",
+    }
+
+    first = client.post("/api/voice-sample/instruction", json=base_payload)
+    repeated = client.post("/api/voice-sample/instruction", json=base_payload)
+    changed_model = client.post(
+        "/api/voice-sample/instruction",
+        json={**base_payload, "model": "qwen3-tts-instruct-flash-realtime-2026-01-22"},
+    )
+    changed_text = client.post(
+        "/api/voice-sample/instruction",
+        json={**base_payload, "sample_text": "Second sample text."},
+    )
+    changed_instructions = client.post(
+        "/api/voice-sample/instruction",
+        json={**base_payload, "instructions": "More expressive audiobook narration."},
+    )
+
+    assert [response.status_code for response in [first, repeated, changed_model, changed_text, changed_instructions]] == [
+        200,
+        200,
+        200,
+        200,
+        200,
+    ]
+    assert len(provider.calls) == 4
+    assert len(list((test_settings.audio_dir / "voice-samples").glob("*.mp3"))) == 4
+
+
+def test_instruction_voice_sample_rejects_invalid_payload(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    invalid_language = client.post(
+        "/api/voice-sample/instruction",
+        json={
+            "model": "qwen3-tts-instruct-flash-realtime",
+            "voice": "Kai",
+            "speed": 1.0,
+            "language": "fr",
+            "sample_text": "Sample text.",
+            "instructions": "Calm narration.",
+        },
+    )
+    empty_text = client.post(
+        "/api/voice-sample/instruction",
+        json={
+            "model": "qwen3-tts-instruct-flash-realtime",
+            "voice": "Kai",
+            "speed": 1.0,
+            "language": "en",
+            "sample_text": " ",
+            "instructions": "Calm narration.",
+        },
+    )
+    empty_model = client.post(
+        "/api/voice-sample/instruction",
+        json={
+            "model": " ",
+            "voice": "Kai",
+            "speed": 1.0,
+            "language": "en",
+            "sample_text": "Sample text.",
+            "instructions": "Calm narration.",
+        },
+    )
+
+    assert invalid_language.status_code == 400
+    assert empty_text.status_code == 422
+    assert empty_model.status_code == 422
+    assert provider.calls == []
+
+
+def test_instruction_voice_sample_rejects_unsupported_model(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/voice-sample/instruction",
+        json={
+            "model": "qwen3-tts-flash-realtime",
+            "voice": "Kai",
+            "speed": 1.0,
+            "language": "en",
+            "sample_text": "Sample text.",
+            "instructions": "Calm narration.",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": {
+            "code": "unsupported_model",
+            "message": "qwen3-tts-flash-realtime is not supported for instruction samples",
+        }
+    }
+    assert provider.calls == []
+
+
+def test_instruction_voice_sample_rejects_voice_not_supported_by_model(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/voice-sample/instruction",
+        json={
+            "model": "qwen3-tts-instruct-flash-realtime",
+            "voice": "Jennifer",
+            "speed": 1.0,
+            "language": "en",
+            "sample_text": "Sample text.",
+            "instructions": "Calm narration.",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": {
+            "code": "unsupported_voice",
+            "message": "Jennifer is not supported by qwen3-tts-instruct-flash-realtime",
+        }
+    }
+    assert provider.calls == []
+
+
+def test_instruction_voice_sample_logs_and_returns_provider_error(test_settings, monkeypatch, caplog):
+    provider = FailingSampleProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True), raise_server_exceptions=False)
+
+    with caplog.at_level(logging.ERROR, logger="tts_app.routes.voice_samples"):
+        response = client.post(
+            "/api/voice-sample/instruction",
+            json={
+                "model": "qwen3-tts-instruct-flash-realtime",
+                "voice": "Kai",
+                "speed": 1.0,
+                "language": "en",
+                "sample_text": "Private sample text.",
+                "instructions": "Private narration instructions.",
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": {
+            "code": "provider_error",
+            "message": "The speech provider could not generate this sample. Check the server logs for details.",
+        }
+    }
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "instruction_voice_sample_provider_failed model=qwen3-tts-instruct-flash-realtime voice=Kai "
+        "language=en error=sample failed" in message
+        for message in messages
+    )
+    assert all("Private sample text" not in message for message in messages)
+    assert all("Private narration instructions" not in message for message in messages)
+
+
+def test_voice_sample_cache_can_be_cleared(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+    payload = {
+        "model": "qwen3-tts-instruct-flash-realtime",
+        "voice": "Kai",
+        "speed": 1.0,
+        "language": "en",
+        "sample_text": "Sample text.",
+        "instructions": "Calm narration.",
+    }
+
+    created = client.post("/api/voice-sample/instruction", json=payload)
+    cleared = client.delete("/api/voice-samples/cache")
+
+    assert created.status_code == 200
+    assert cleared.status_code == 204
+    assert not list((test_settings.audio_dir / "voice-samples").glob("*.mp3"))
+
+
+def test_instruction_voice_sample_rejects_excessive_text_before_provider_call(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    response = client.post(
+        "/api/voice-sample/instruction",
+        json={
+            "model": "qwen3-tts-instruct-flash-realtime",
+            "voice": "Kai",
+            "speed": 1.0,
+            "language": "en",
+            "sample_text": "x" * 50_001,
+            "instructions": "Calm narration.",
+        },
+    )
+
+    assert response.status_code == 422
+    assert provider.calls == []
+
+
+def test_voice_sample_cache_clear_failure_returns_stable_error(test_settings, monkeypatch, caplog):
+    provider = CapturingTTSProvider()
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+
+    def fail_clear(self):
+        raise VoiceSampleCacheError("Unable to clear voice sample cache") from PermissionError("read-only")
+
+    monkeypatch.setattr("tts_app.voice_samples.VoiceSampleCache.clear", fail_clear)
+    client = TestClient(create_app(test_settings, run_background_inline=True), raise_server_exceptions=False)
+
+    with caplog.at_level(logging.ERROR, logger="tts_app.routes.voice_samples"):
+        response = client.delete("/api/voice-samples/cache")
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": {"code": "cache_clear_failed", "message": "Unable to clear voice samples"}
+    }
+    assert any("voice_sample_cache_clear_failed" in record.getMessage() for record in caplog.records)
 
 def test_submit_text_preserves_explicit_voice(test_settings):
     app = create_app(settings=test_settings)

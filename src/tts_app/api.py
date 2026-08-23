@@ -17,14 +17,14 @@ from tts_app.events import EventBroker
 from tts_app.extractor import ExtractionError, fetch_and_extract
 from tts_app.generation import GenerationService
 from tts_app.ocr_providers.registry import get_ocr_provider
-from tts_app.providers.base import TTSOptions
 from tts_app.providers.options import SelectOption
 from tts_app.providers.registry import get_provider
 from tts_app.routes.ocr import create_ocr_router
 from tts_app.routes.playback import create_playback_router
 from tts_app.routes.shared import schedule_generation
+from tts_app.routes.voice_samples import create_voice_sample_router
 from tts_app.storage import PLAYBACK_TELEMETRY_EVENT_NAMES, Storage, validate_playback_telemetry_session_id
-from tts_app.voice_samples import VoiceSampleCache, VoiceSampleCacheError
+from tts_app.voice_samples import VoiceSampleCache
 
 logger = logging.getLogger(__name__)
 
@@ -89,23 +89,6 @@ TTS_LANGUAGES = {
 }
 
 
-class VoiceSampleRequest(BaseModel):
-    voice: str
-    speed: float = Field(default=1.0, ge=0.5, le=2.0)
-    language: str = "en"
-
-
-SAMPLE_TEXT = {
-    "en": "This is a short Readvox voice sample. Use it to check the voice, pacing, clarity, and listening comfort before generating the full article.",
-    "zh": "这是一个简短的 Readvox 语音示例。请用它来检查声音、语速、清晰度和听感是否适合长时间收听。",
-}
-
-SAMPLE_LANGUAGES = {
-    "en": "English",
-    "zh": "Chinese",
-}
-
-
 def create_app(settings: Settings | None = None, run_background_inline: bool = False) -> FastAPI:
     active_settings = settings or load_settings()
     storage = Storage(active_settings.db_path)
@@ -130,6 +113,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     app.state.service = service
     app.state.ocr_provider = ocr_provider
     app.include_router(create_playback_router(settings=active_settings, storage=storage, service=service))
+    app.include_router(create_voice_sample_router(voice_sample_cache=voice_sample_cache))
     app.include_router(
         create_ocr_router(
             settings=active_settings,
@@ -194,26 +178,6 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             payload.preferred,
         )
         return {"voice": voice, "language": payload.language, "preferred": payload.preferred}
-
-    @app.post("/api/voice-sample")
-    async def voice_sample(payload: VoiceSampleRequest):
-        _validate_language(payload.language)
-        text = SAMPLE_TEXT[payload.language]
-        options = TTSOptions(
-            voice=payload.voice,
-            speed=payload.speed,
-            language=SAMPLE_LANGUAGES[payload.language],
-            audio_format="mp3",
-        )
-        try:
-            audio, mime_type = await voice_sample_cache.get_or_create(
-                text=text,
-                options=options,
-                language=payload.language,
-            )
-        except VoiceSampleCacheError as exc:
-            raise HTTPException(status_code=502, detail="voice sample failed") from exc
-        return Response(content=audio, media_type=mime_type)
 
     @app.post("/api/generations/text")
     async def submit_text(payload: TextGenerationRequest, background_tasks: BackgroundTasks):
