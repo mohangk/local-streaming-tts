@@ -4,6 +4,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from types import SimpleNamespace
 
 import anyio
 from fastapi.testclient import TestClient
@@ -11,7 +12,7 @@ from fastapi.testclient import TestClient
 from tts_app.api import create_app
 from tts_app.extractor import ExtractedText
 from tts_app.providers.base import AudioChunk, ProviderError, TTSOptions
-from tts_app.providers.options import SelectOption
+from tts_app.providers.options import QWEN_INSTRUCTION_SAMPLE_CAPABILITIES, SelectOption
 from tts_app.storage import Storage
 from tts_app.voice_samples import VoiceSampleCacheError
 
@@ -21,6 +22,7 @@ class CapturingTTSProvider:
     english_voices = (SelectOption("Capture English", "Capture English", language="en"),)
     chinese_voices = (SelectOption("Capture Chinese", "Capture Chinese", language="zh"),)
     speed_options = ()
+    instruction_sample_capabilities = QWEN_INSTRUCTION_SAMPLE_CAPABILITIES
 
     def __init__(self):
         self.calls: list[tuple[str, TTSOptions]] = []
@@ -495,6 +497,47 @@ def test_instruction_voice_sample_rejects_voice_not_supported_by_model(test_sett
             "message": "Jennifer is not supported by qwen3-tts-instruct-flash-realtime",
         }
     }
+    assert provider.calls == []
+
+
+def test_instruction_voice_sample_uses_provider_model_voice_capabilities(test_settings, monkeypatch):
+    provider = CapturingTTSProvider()
+    provider.instruction_sample_capabilities = SimpleNamespace(
+        models=(
+            SimpleNamespace(
+                option=SelectOption("qwen3-tts-instruct-flash-realtime", "Provider model"),
+                voices=(SelectOption("Provider Voice", "Provider voice"),),
+            ),
+        ),
+        speeds=(SelectOption(1.0, "1x"),),
+        default_model="qwen3-tts-instruct-flash-realtime",
+        default_voice="Provider Voice",
+    )
+    monkeypatch.setattr("tts_app.api.get_provider", lambda settings: provider)
+    client = TestClient(create_app(test_settings, run_background_inline=True))
+
+    options_response = client.get("/api/voice-sample/options")
+    rejected = client.post(
+        "/api/voice-sample/instruction",
+        json={
+            "model": "qwen3-tts-instruct-flash-realtime",
+            "voice": "Kai",
+            "speed": 1.0,
+            "language": "en",
+            "sample_text": "Sample text.",
+            "instructions": "Calm narration.",
+        },
+    )
+
+    assert options_response.status_code == 200
+    assert options_response.json()["models"] == [
+        {"value": "qwen3-tts-instruct-flash-realtime", "label": "Provider model"}
+    ]
+    assert options_response.json()["voices"] == [
+        {"value": "Provider Voice", "label": "Provider voice"}
+    ]
+    assert rejected.status_code == 400
+    assert rejected.json()["detail"]["code"] == "unsupported_voice"
     assert provider.calls == []
 
 

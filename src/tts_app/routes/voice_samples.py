@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 
 from tts_app.providers.base import TTSOptions
-from tts_app.providers.options import QWEN_INSTRUCTION_MODELS, QWEN_INSTRUCTION_VOICES, SPEED_OPTIONS, SelectOption
+from tts_app.providers.options import InstructionModelCapabilities, InstructionSampleCapabilities, SelectOption
 from tts_app.voice_samples import VoiceSampleCache, VoiceSampleCacheError
 
 
@@ -25,10 +25,6 @@ SAMPLE_LANGUAGES = {
     "zh": "Chinese",
 }
 
-ALLOWED_INSTRUCTION_SAMPLE_MODELS = {str(option.value) for option in QWEN_INSTRUCTION_MODELS}
-ALLOWED_INSTRUCTION_SAMPLE_VOICES = {str(option.value) for option in QWEN_INSTRUCTION_VOICES}
-DEFAULT_INSTRUCTION_SAMPLE_MODEL = "qwen3-tts-instruct-flash-realtime"
-DEFAULT_INSTRUCTION_SAMPLE_VOICE = "Kai"
 MAX_INSTRUCTION_SAMPLE_CHARS = 50_000
 
 
@@ -77,18 +73,20 @@ def create_voice_sample_router(voice_sample_cache: VoiceSampleCache) -> APIRoute
 
     @router.get("/api/voice-sample/options")
     async def instruction_voice_sample_options():
+        capabilities = _instruction_capabilities(voice_sample_cache)
+        default_model = _instruction_model(capabilities, capabilities.default_model)
         return {
             "default_language": "en",
-            "default_model": DEFAULT_INSTRUCTION_SAMPLE_MODEL,
+            "default_model": capabilities.default_model,
             "default_speed": 1.0,
-            "default_voice": DEFAULT_INSTRUCTION_SAMPLE_VOICE,
+            "default_voice": capabilities.default_voice,
             "languages": [
                 {"value": "en", "label": "English"},
                 {"value": "zh", "label": "Chinese"},
             ],
-            "models": _option_dicts(QWEN_INSTRUCTION_MODELS),
-            "voices": _option_dicts(QWEN_INSTRUCTION_VOICES),
-            "speeds": _option_dicts(SPEED_OPTIONS),
+            "models": _option_dicts(tuple(model.option for model in capabilities.models)),
+            "voices": _option_dicts(default_model.voices),
+            "speeds": _option_dicts(capabilities.speeds),
         }
 
     @router.post("/api/voice-sample")
@@ -121,8 +119,9 @@ def create_voice_sample_router(voice_sample_cache: VoiceSampleCache) -> APIRoute
     @router.post("/api/voice-sample/instruction")
     async def instruction_voice_sample(payload: InstructionVoiceSampleRequest):
         _validate_language(payload.language)
-        _validate_instruction_model(payload.model)
-        _validate_instruction_voice(payload.model, payload.voice)
+        capabilities = _instruction_capabilities(voice_sample_cache)
+        model = _instruction_model(capabilities, payload.model)
+        _validate_instruction_voice(model, payload.voice)
         options = TTSOptions(
             voice=payload.voice,
             model=payload.model,
@@ -169,26 +168,44 @@ def _validate_language(language: str) -> None:
         raise HTTPException(status_code=400, detail="language must be en or zh")
 
 
-def _validate_instruction_voice(model: str, voice: str) -> None:
-    if voice not in ALLOWED_INSTRUCTION_SAMPLE_VOICES:
+def _validate_instruction_voice(model: InstructionModelCapabilities, voice: str) -> None:
+    if voice not in {str(option.value) for option in model.voices}:
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "unsupported_voice",
-                "message": f"{voice} is not supported by {model}",
+                "message": f"{voice} is not supported by {model.option.value}",
             },
         )
 
 
-def _validate_instruction_model(model: str) -> None:
-    if model not in ALLOWED_INSTRUCTION_SAMPLE_MODELS:
+def _instruction_capabilities(voice_sample_cache: VoiceSampleCache) -> InstructionSampleCapabilities:
+    capabilities = getattr(voice_sample_cache.provider, "instruction_sample_capabilities", None)
+    if capabilities is None:
         raise HTTPException(
-            status_code=400,
+            status_code=503,
             detail={
-                "code": "unsupported_model",
-                "message": f"{model} is not supported for instruction samples",
+                "code": "instruction_samples_unavailable",
+                "message": "The configured speech provider does not support instruction samples",
             },
         )
+    return capabilities
+
+
+def _instruction_model(
+    capabilities: InstructionSampleCapabilities,
+    model: str,
+) -> InstructionModelCapabilities:
+    for candidate in capabilities.models:
+        if candidate.option.value == model:
+            return candidate
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "code": "unsupported_model",
+            "message": f"{model} is not supported for instruction samples",
+        },
+    )
 
 
 def _provider_error() -> HTTPException:

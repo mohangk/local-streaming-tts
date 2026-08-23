@@ -10,6 +10,20 @@ class SelectOption:
     language: str | None = None
 
 
+@dataclass(frozen=True)
+class InstructionModelCapabilities:
+    option: SelectOption
+    voices: tuple[SelectOption, ...]
+
+
+@dataclass(frozen=True)
+class InstructionSampleCapabilities:
+    models: tuple[InstructionModelCapabilities, ...]
+    speeds: tuple[SelectOption, ...]
+    default_model: str
+    default_voice: str
+
+
 QWEN_ENGLISH_VOICES: tuple[SelectOption, ...] = (
     SelectOption("Jennifer", "Jennifer - American English female", language="en"),
     SelectOption("Aiden", "Aiden - American English male", language="en"),
@@ -88,4 +102,14 @@ SPEED_OPTIONS: tuple[SelectOption, ...] = (
     SelectOption(1.1, "1.1x"),
     SelectOption(1.25, "1.25x"),
     SelectOption(1.5, "1.5x"),
+)
+
+QWEN_INSTRUCTION_SAMPLE_CAPABILITIES = InstructionSampleCapabilities(
+    models=tuple(
+        InstructionModelCapabilities(option=model, voices=QWEN_INSTRUCTION_VOICES)
+        for model in QWEN_INSTRUCTION_MODELS
+    ),
+    speeds=SPEED_OPTIONS,
+    default_model="qwen3-tts-instruct-flash-realtime",
+    default_voice="Kai",
 )
