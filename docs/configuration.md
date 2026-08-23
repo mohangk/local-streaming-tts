@@ -34,7 +34,7 @@ The `/voice-sample` experiment page can test Qwen instruction control with one o
 
 The instruction realtime models support these system voices: `Cherry`, `Serena`, `Ethan`, `Chelsie`, `Momo`, `Vivian`, `Moon`, `Maia`, `Kai`, `Nofish`, `Bella`, `Eldric Sage`, `Mia`, `Mochi`, `Bellona`, `Vincent`, `Bunny`, `Neil`, `Elias`, `Arthur`, `Nini`, `Seren`, `Pip`, and `Stella`. Readvox serves this model-specific list from `/api/voice-sample/options`; the normal generation voice list is not reused because some voices, including `Jennifer`, are unavailable on the instruction model. See Alibaba Cloud's current [Qwen-TTS voice list](https://www.alibabacloud.com/help/en/model-studio/qwen-tts-voice-list) before changing the catalog.
 
-The live provider integration canary verifies the complete Readvox API-to-Qwen path using the configured default instruction voice and sample text that crosses a segment boundary. Run it once before marking an implementation feature complete:
+The live provider integration canary verifies the complete Readvox API-to-Qwen path using the configured default instruction voice and one short provider request. Deterministic tests cover multi-segment sample assembly without adding paid provider calls. Run the canary once before marking an implementation feature complete:
 
 ```bash
 set -a

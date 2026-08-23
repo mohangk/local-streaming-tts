@@ -26,6 +26,8 @@ def test_instruction_voice_sample_default_integrates_with_qwen(test_settings):
     client = TestClient(create_app(settings, run_background_inline=True))
 
     sample_options = client.get("/api/voice-sample/options").json()
+    sample_text = "Readvox checks the live provider with calm, clear narration."
+    assert len(sample_text) <= settings.segment_max_chars
     response = client.post(
         "/api/voice-sample/instruction",
         json={
@@ -33,10 +35,7 @@ def test_instruction_voice_sample_default_integrates_with_qwen(test_settings):
             "voice": sample_options["default_voice"],
             "speed": sample_options["default_speed"],
             "language": sample_options["default_language"],
-            "sample_text": (
-                "Readvox checks the live provider with calm narration. "
-                "This second sentence crosses the configured sample segment boundary."
-            ),
+            "sample_text": sample_text,
             "instructions": "Read calmly and clearly.",
         },
     )
