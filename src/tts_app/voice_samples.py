@@ -119,13 +119,21 @@ class VoiceSampleCache:
             try:
                 os.replace(self.cache_dir, tombstone)
             except FileNotFoundError:
-                return
+                pass
             except OSError as exc:
                 raise VoiceSampleCacheError("Unable to clear voice sample cache") from exc
-        try:
-            shutil.rmtree(tombstone)
-        except OSError as exc:
-            raise VoiceSampleCacheError("Unable to clear voice sample cache") from exc
+            tombstones = list(self.cache_dir.parent.glob(f"{self.cache_dir.name}.clear.*"))
+
+        first_error: OSError | None = None
+        for detached_cache in tombstones:
+            try:
+                shutil.rmtree(detached_cache)
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                first_error = first_error or exc
+        if first_error is not None:
+            raise VoiceSampleCacheError("Unable to clear voice sample cache") from first_error
 
     async def _acquire_lock(self, lock_key: str) -> asyncio.Lock:
         async with self._locks_guard:

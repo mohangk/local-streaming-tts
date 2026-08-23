@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import threading
 import time
 from dataclasses import replace
@@ -296,6 +297,7 @@ def test_voice_sample_cache_surfaces_clear_failure(test_settings, monkeypatch):
         (path / "first.mp3").unlink()
         raise PermissionError("cache directory is read-only")
 
+    original_rmtree = shutil.rmtree
     monkeypatch.setattr("tts_app.voice_samples.shutil.rmtree", fail_clear)
 
     with pytest.raises(VoiceSampleCacheError, match="Unable to clear voice sample cache"):
@@ -305,6 +307,11 @@ def test_voice_sample_cache_surfaces_clear_failure(test_settings, monkeypatch):
     tombstones = list(cache.cache_dir.parent.glob("voice-samples.clear.*"))
     assert len(tombstones) == 1
     assert (tombstones[0] / "second.mp3").read_bytes() == b"second"
+
+    monkeypatch.setattr("tts_app.voice_samples.shutil.rmtree", original_rmtree)
+    cache.clear()
+
+    assert not list(cache.cache_dir.parent.glob("voice-samples.clear.*"))
 
 
 def test_voice_sample_cache_surfaces_atomic_detach_failure(test_settings, monkeypatch):
