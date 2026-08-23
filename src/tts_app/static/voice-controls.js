@@ -14,6 +14,7 @@ import {
 } from "./dom.js?v=playback-progress-1";
 import { state } from "./state.js?v=playback-progress-1";
 import { escapeHtml, formatSpeed } from "./utils.js?v=playback-progress-1";
+import { responseErrorMessage } from "./api-client.js?v=long-samples-1";
 
 export const VOICE_SELECTION_STORAGE_KEY = "readvox.voiceSelection.v1";
 
@@ -249,7 +250,7 @@ export async function playVoiceSample() {
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      playerStatus.textContent = "Unable to load voice sample";
+      playerStatus.textContent = await responseErrorMessage(response, "Unable to load voice sample");
       return;
     }
     const blob = await response.blob();

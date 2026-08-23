@@ -43,6 +43,11 @@ textarea { resize: vertical; min-height: 220px; }
 .voice-row, .image-actions { display: flex; gap: 0.5rem; align-items: center; }
 .image-actions { flex-wrap: wrap; }
 .voice-row select { flex: 1; min-width: 0; }
+.sample-shell { padding-bottom: 24px; }
+.sample-panel { margin-bottom: 12px; }
+.status-line { color: #596171; font-size: 0.95rem; min-height: 1.4em; }
+.link-action { text-align: center; text-decoration: none; }
+#instruction-audio { width: 100%; }
 .icon-action { min-width: 2.75rem; min-height: 2.75rem; }
 .image-selection-list { display: grid; gap: 8px; }
 .image-selection-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; border: 1px solid #d8dde6; border-radius: 8px; background: #ffffff; padding: 8px 10px; }

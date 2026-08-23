@@ -8,7 +8,7 @@ from pathlib import Path
 STATIC_DIR = Path("src/tts_app/static")
 SRC_DIR = Path("src/tts_app")
 PYPROJECT = Path("pyproject.toml")
-JS_FILES = (
+APP_JS_FILES = (
     "app.js",
     "ocr.js",
     "playback.js",
@@ -18,10 +18,11 @@ JS_FILES = (
     "dom.js",
     "utils.js",
 )
+JS_FILES = (*APP_JS_FILES, "api-client.js", "instruction-voice-sample.js")
 
 
 def frontend_js() -> str:
-    return "\n".join((STATIC_DIR / filename).read_text(encoding="utf-8") for filename in JS_FILES)
+    return "\n".join((STATIC_DIR / filename).read_text(encoding="utf-8") for filename in APP_JS_FILES)
 
 
 def test_frontend_has_generate_history_and_playback_views():
@@ -40,6 +41,34 @@ def test_frontend_has_generate_history_and_playback_views():
     assert 'href="/static/styles.css?v=' in html
     assert 'src="/static/app.js?v=' in html
     assert '<script type="module" src="/static/app.js?v=' in html
+
+
+def test_instruction_voice_sample_page_has_experiment_controls():
+    html = (STATIC_DIR / "voice-sample.html").read_text(encoding="utf-8")
+
+    assert "<title>Readvox Voice Sample</title>" in html
+    assert 'id="instruction-model"' in html
+    assert 'id="instruction-language"' in html
+    assert 'id="instruction-voice"' in html
+    assert 'id="instruction-speed"' in html
+    assert 'id="instruction-text"' in html
+    assert 'id="instruction-prompt"' in html
+    assert 'id="instruction-sample"' in html
+    assert 'id="clear-instruction-samples"' in html
+    assert "long-form audiobook" in html
+    assert 'src="/static/instruction-voice-sample.js?v=' in html
+
+
+def test_instruction_voice_sample_javascript_posts_to_instruction_endpoint_without_telemetry():
+    js = (STATIC_DIR / "instruction-voice-sample.js").read_text(encoding="utf-8")
+
+    assert 'fetch("/api/voice-sample/options")' in js
+    assert 'fetch("/api/voice-sample/instruction"' in js
+    assert 'fetch("/api/voice-samples/cache"' in js
+    assert "responseErrorMessage" in js
+    assert "sample_text" in js
+    assert "instructions" in js
+    assert "playbackTelemetry" not in js
 
 
 def test_frontend_versions_split_javascript_module_imports():
@@ -100,7 +129,7 @@ def test_frontend_static_asset_version_bumped_for_playback_progress():
     sources = [html, *((STATIC_DIR / filename).read_text(encoding="utf-8") for filename in JS_FILES)]
 
     assert 'href="/static/styles.css?v=playback-progress-1"' in html
-    assert 'src="/static/app.js?v=playback-progress-1"' in html
+    assert 'src="/static/app.js?v=long-samples-1"' in html
     assert "playback-progress-1" in (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     assert "playback-progress-1" in (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
     assert "playback-progress-1" in (STATIC_DIR / "voice-controls.js").read_text(encoding="utf-8")

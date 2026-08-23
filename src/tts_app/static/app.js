@@ -41,7 +41,7 @@ import {
   renderVoiceControls,
   setVoiceControlsHidden,
   voiceGenerationPayload,
-} from "./voice-controls.js?v=playback-progress-1";
+} from "./voice-controls.js?v=long-samples-1";
 
 const playbackTelemetry = createPlaybackTelemetry();
 const enqueueProgressSave = createQueuedProgressSaver(persistProgress);
