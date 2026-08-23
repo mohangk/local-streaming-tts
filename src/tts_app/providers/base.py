@@ -13,12 +13,14 @@ class ProviderError(RuntimeError):
 @dataclass(frozen=True)
 class TTSOptions:
     voice: str
+    model: str | None = None
     audio_format: str = "mp3"
     language: str = "Auto"
     sample_rate: int = 24000
     speed: float = 1.0
     pitch: float = 1.0
     volume: float = 1.0
+    instructions: str | None = None
 
 
 @dataclass(frozen=True)

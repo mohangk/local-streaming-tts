@@ -32,7 +32,7 @@ async def test_qwen_provider_sends_realtime_events_and_yields_audio():
             {"type": "response.created"},
             {"type": "response.audio.delta", "delta": base64.b64encode(b"abc").decode("ascii")},
             {"type": "response.audio.delta", "delta": base64.b64encode(b"def").decode("ascii")},
-            {"type": "response.done"},
+            {"type": "response.done", "response": {"status": "completed"}},
             {"type": "response.audio.delta", "delta": base64.b64encode(b"ignored").decode("ascii")},
         ]
     )
@@ -70,8 +70,107 @@ async def test_qwen_provider_sends_realtime_events_and_yields_audio():
     assert websocket.sent_events[0]["session"]["response_format"] == "mp3"
     assert websocket.sent_events[0]["session"]["sample_rate"] == 16000
     assert websocket.sent_events[0]["session"]["speech_rate"] == 1.25
+    assert "instructions" not in websocket.sent_events[0]["session"]
     assert websocket.sent_events[1]["text"] == "hello"
     assert websocket.closed is True
+
+
+@pytest.mark.asyncio
+async def test_qwen_provider_sends_instruction_control_when_present():
+    websocket = FakeWebSocket(
+        [
+            {"type": "response.audio.delta", "delta": base64.b64encode(b"abc").decode("ascii")},
+            {"type": "response.done", "response": {"status": "completed"}},
+        ]
+    )
+
+    async def connect(url, additional_headers):
+        return websocket
+
+    provider = QwenTTSProvider(
+        api_key="key",
+        model="qwen3-tts-instruct-flash-realtime",
+        realtime_url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime",
+        connect=connect,
+    )
+    options = TTSOptions(
+        voice="Kai",
+        audio_format="mp3",
+        language="English",
+        speed=0.9,
+        instructions="Read in a calm long-form audiobook style.",
+    )
+
+    chunks = [chunk async for chunk in provider.stream_speech("hello", options)]
+
+    assert [chunk.data for chunk in chunks] == [b"abc"]
+    assert websocket.sent_events[0]["session"]["instructions"] == "Read in a calm long-form audiobook style."
+
+
+@pytest.mark.asyncio
+async def test_qwen_provider_uses_request_model_override():
+    websocket = FakeWebSocket(
+        [
+            {"type": "response.audio.delta", "delta": base64.b64encode(b"abc").decode("ascii")},
+            {"type": "response.done", "response": {"status": "completed"}},
+        ]
+    )
+    captured = {}
+
+    async def connect(url, additional_headers):
+        captured["url"] = url
+        return websocket
+
+    provider = QwenTTSProvider(
+        api_key="key",
+        model="qwen3-tts-flash-realtime",
+        realtime_url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime",
+        connect=connect,
+    )
+    options = TTSOptions(voice="Kai", model="qwen3-tts-instruct-flash-realtime-2026-01-22")
+
+    chunks = [chunk async for chunk in provider.stream_speech("hello", options)]
+
+    assert [chunk.data for chunk in chunks] == [b"abc"]
+    assert captured["url"].endswith("?model=qwen3-tts-instruct-flash-realtime-2026-01-22")
+
+
+@pytest.mark.asyncio
+async def test_qwen_provider_rejects_incomplete_response():
+    websocket = FakeWebSocket([{"type": "response.done", "response": {"status": "incomplete"}}])
+
+    async def connect(url, additional_headers):
+        return websocket
+
+    provider = QwenTTSProvider(
+        api_key="key",
+        model="qwen3-tts-flash-realtime",
+        realtime_url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime",
+        connect=connect,
+    )
+
+    with pytest.raises(ProviderError, match="response incomplete"):
+        async for _ in provider.stream_speech("hello", TTSOptions(voice="Cherry")):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_qwen_provider_rejects_completed_response_without_audio():
+    websocket = FakeWebSocket([{"type": "response.done", "response": {"status": "completed"}}])
+
+    async def connect(url, additional_headers):
+        return websocket
+
+    provider = QwenTTSProvider(
+        api_key="key",
+        model="qwen3-tts-flash-realtime",
+        realtime_url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime",
+        connect=connect,
+    )
+
+    with pytest.raises(ProviderError, match="returned no audio"):
+        async for _ in provider.stream_speech("hello", TTSOptions(voice="Cherry")):
+            pass
 
 
 @pytest.mark.asyncio

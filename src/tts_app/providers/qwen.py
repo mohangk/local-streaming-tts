@@ -36,23 +36,28 @@ class QwenTTSProvider:
     async def stream_speech(self, text: str, options: TTSOptions) -> AsyncIterator[AudioChunk]:
         if not self.api_key:
             raise ProviderError("API key is required for qwen provider")
-        url = self._build_url()
+        url = self._build_url(options.model)
         websocket = None
         primary_error: BaseException | None = None
+        response_completed = False
+        audio_received = False
         try:
             websocket = await self.connect(url, additional_headers={"Authorization": f"Bearer {self.api_key}"})
+            session = {
+                "voice": options.voice,
+                "mode": "commit",
+                "language_type": options.language,
+                "response_format": options.audio_format,
+                "sample_rate": options.sample_rate,
+                "speech_rate": options.speed,
+            }
+            if options.instructions:
+                session["instructions"] = options.instructions
             await self._send_event(
                 websocket,
                 {
                     "type": "session.update",
-                    "session": {
-                        "voice": options.voice,
-                        "mode": "commit",
-                        "language_type": options.language,
-                        "response_format": options.audio_format,
-                        "sample_rate": options.sample_rate,
-                        "speech_rate": options.speed,
-                    },
+                    "session": session,
                 },
             )
             await self._send_event(websocket, {"type": "input_text_buffer.append", "text": text})
@@ -67,13 +72,25 @@ class QwenTTSProvider:
                     raise ProviderError(error.get("message") or json.dumps(error))
                 if event_type == "response.audio.delta":
                     data = self._decode_audio_delta(event)
+                    audio_received = True
                     yield AudioChunk(
                         data=data,
                         mime_type=_mime_type(options.audio_format),
                         extension=_extension(options.audio_format),
                     )
-                if event_type in {"response.done", "session.finished"}:
+                if event_type == "response.done":
+                    response = event.get("response")
+                    status = response.get("status") if isinstance(response, dict) else None
+                    if status != "completed":
+                        raise ProviderError(f"qwen provider response {status or 'missing completion status'}")
+                    if not audio_received:
+                        raise ProviderError("qwen provider returned no audio")
+                    response_completed = True
                     break
+                if event_type == "session.finished":
+                    raise ProviderError("qwen provider session finished before a completed response")
+            if not response_completed:
+                raise ProviderError("qwen provider ended before a completed response")
         except ProviderError as exc:
             primary_error = exc
             raise
@@ -91,9 +108,9 @@ class QwenTTSProvider:
                         if primary_error is None:
                             raise ProviderError(f"qwen provider failed: {exc}") from exc
 
-    def _build_url(self) -> str:
+    def _build_url(self, model: str | None = None) -> str:
         separator = "&" if "?" in self.realtime_url else "?"
-        return f"{self.realtime_url}{separator}{urlencode({'model': self.model})}"
+        return f"{self.realtime_url}{separator}{urlencode({'model': model or self.model})}"
 
     async def _send_event(self, websocket: object, event: dict) -> None:
         event["event_id"] = f"event_{uuid.uuid4().hex}"

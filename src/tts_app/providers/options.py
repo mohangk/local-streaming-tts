@@ -46,6 +46,41 @@ QWEN_CHINESE_VOICES: tuple[SelectOption, ...] = tuple(
     for option in QWEN_ENGLISH_VOICES
 )
 
+QWEN_INSTRUCTION_MODELS: tuple[SelectOption, ...] = (
+    SelectOption("qwen3-tts-instruct-flash-realtime", "Qwen3 TTS Instruct Flash Realtime"),
+    SelectOption(
+        "qwen3-tts-instruct-flash-realtime-2026-01-22",
+        "Qwen3 TTS Instruct Flash Realtime 2026-01-22",
+    ),
+)
+
+QWEN_INSTRUCTION_VOICES: tuple[SelectOption, ...] = (
+    SelectOption("Cherry", "Cherry - friendly natural woman"),
+    SelectOption("Serena", "Serena - gentle young woman"),
+    SelectOption("Ethan", "Ethan - warm energetic man"),
+    SelectOption("Chelsie", "Chelsie - bright animated woman"),
+    SelectOption("Momo", "Momo - playful woman"),
+    SelectOption("Vivian", "Vivian - confident woman"),
+    SelectOption("Moon", "Moon - bold man"),
+    SelectOption("Maia", "Maia - gentle thoughtful woman"),
+    SelectOption("Kai", "Kai - soothing man"),
+    SelectOption("Nofish", "Nofish - casual man"),
+    SelectOption("Bella", "Bella - playful young woman"),
+    SelectOption("Eldric Sage", "Eldric Sage - calm wise elder"),
+    SelectOption("Mia", "Mia - soft gentle woman"),
+    SelectOption("Mochi", "Mochi - quick-witted man"),
+    SelectOption("Bellona", "Bellona - powerful clear voice"),
+    SelectOption("Vincent", "Vincent - raspy heroic man"),
+    SelectOption("Bunny", "Bunny - playful young girl"),
+    SelectOption("Neil", "Neil - precise professional man"),
+    SelectOption("Elias", "Elias - academic storyteller"),
+    SelectOption("Arthur", "Arthur - earthy storyteller"),
+    SelectOption("Nini", "Nini - soft sweet woman"),
+    SelectOption("Seren", "Seren - gentle soothing woman"),
+    SelectOption("Pip", "Pip - playful young boy"),
+    SelectOption("Stella", "Stella - expressive young woman"),
+)
+
 SPEED_OPTIONS: tuple[SelectOption, ...] = (
     SelectOption(0.75, "0.75x"),
     SelectOption(0.9, "0.9x"),

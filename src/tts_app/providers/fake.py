@@ -25,6 +25,11 @@ class FakeTTSProvider:
 
     async def stream_speech(self, text: str, options: TTSOptions) -> AsyncIterator[AudioChunk]:
         await asyncio.sleep(0)
-        digest = hashlib.sha256(f"{options.voice}:{options.speed}:{text}".encode("utf-8")).hexdigest()[:16]
-        data = f"FAKE-TTS\nvoice={options.voice}\nspeed={options.speed}\ndigest={digest}\ntext={text}\n".encode("utf-8")
+        digest = hashlib.sha256(
+            f"{options.model}:{options.voice}:{options.speed}:{options.instructions}:{text}".encode("utf-8")
+        ).hexdigest()[:16]
+        data = (
+            f"FAKE-TTS\nmodel={options.model or ''}\nvoice={options.voice}\nspeed={options.speed}\n"
+            f"instructions={options.instructions or ''}\ndigest={digest}\ntext={text}\n"
+        ).encode("utf-8")
         yield AudioChunk(data=data, mime_type="audio/mpeg", extension="mp3")
