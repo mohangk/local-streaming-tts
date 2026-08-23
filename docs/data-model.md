@@ -46,7 +46,7 @@ OCR image workflows are staged as drafts until the user creates audio:
 
 `voice_preferences` stores the user's preferred voice per language.
 
-Voice sample audio is cached under `data/audio/voice-samples/` by provider/model/language/voice/speed/sample-text hash. These files are derived app cache, not user-authored data and not generation History rows. They are not removed by generation deletion. A future cache-management flow can clear `data/audio/voice-samples/` if disk usage becomes a concern.
+Voice sample audio is cached under `data/audio/voice-samples/` by provider/model/language/voice/speed/sample-text hash. Normal Generate-page samples use fixed app text; `/voice-sample` instruction experiments can generate cached audio from user-entered sample text and instructions. The complete sample text and configured segment boundary participate in the cache key. Text longer than the segment boundary is synthesized sequentially and concatenated into one atomic MP3 cache file; a failed or canceled segment leaves no partial cache entry. These cache files are not generation History rows and are not removed by generation deletion. `DELETE /api/voice-samples/cache`, exposed by the experiment page's Clear samples control, removes the full voice sample cache, including both fixed-text samples and instruction experiment samples. Cache-clear failures are returned to the client rather than reported as successful.
 
 ## Playback Telemetry
 

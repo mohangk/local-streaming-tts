@@ -27,6 +27,15 @@ npm run lint:js
 npm run test:js
 ```
 
+Before marking an implementation feature complete, also run the single-voice live Qwen integration canary once. This reads the local provider credentials and makes one short paid TTS request:
+
+```bash
+set -a
+source .envrc.local
+set +a
+RUN_QWEN_INTEGRATION=1 .venv/bin/pytest -m live_provider -q
+```
+
 Run locally with the fake provider:
 
 ```bash

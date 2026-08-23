@@ -103,7 +103,7 @@ Frontend state rules:
 
 ## Testing Approach
 
-Use deterministic tests by default. Paid provider calls do not belong in normal test runs.
+Use deterministic tests by default. Paid provider calls do not belong in normal test runs. Before marking an implementation feature complete, run the opt-in live provider integration canary once to verify the Readvox API-to-provider boundary with one short sample and one supported voice.
 
 Run before claiming work is complete:
 
@@ -113,6 +113,17 @@ npm run check:js
 npm run lint:js
 npm run test:js
 ```
+
+Run the live canary with local credentials after the deterministic suite passes:
+
+```bash
+set -a
+source .envrc.local
+set +a
+RUN_QWEN_INTEGRATION=1 .venv/bin/pytest -m live_provider -q
+```
+
+The live canary should remain deliberately narrow: one API request, one documented model/voice combination, a temporary data directory, a non-empty audio assertion, and a check that sampling does not create a History entry. It is an integration health check, not an exhaustive provider voice test.
 
 Prefer focused tests first:
 

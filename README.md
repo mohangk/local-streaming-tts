@@ -10,6 +10,7 @@ The app focuses on long-form reading. It generates audio incrementally so playba
 - Fetch and extract simple HTML article URLs.
 - Upload or capture page images, review OCR output, then generate audio from the reviewed text.
 - Choose language, voice, speed, and cached voice samples.
+- Audition Qwen instruction-controlled voice samples for long-form reading at `/voice-sample`.
 - Play long articles through one continuous audio endpoint backed by incrementally stitched MP3 segments.
 - Track segment-based progress and keep the currently read text highlighted during continuous playback.
 - Resume and delete History entries, including cached audio and linked OCR source images.

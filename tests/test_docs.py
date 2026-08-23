@@ -46,7 +46,9 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "pytest" in readme
     assert "npm run test:js" in readme
     assert "npm run test:js" in agents
+    assert "RUN_QWEN_INTEGRATION=1" in agents
     assert "npm run test:js" in architecture
+    assert "RUN_QWEN_INTEGRATION=1" in architecture
     assert "uvicorn" in readme
     assert "model-pricing" in configuration
     assert "qwen3-tts-flash-realtime" in configuration
@@ -69,10 +71,16 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "data/images/" in configuration
     assert "Voice samples" in configuration
     assert "do not create History entries" in configuration
+    assert "/voice-sample" in configuration
+    assert "server-allowed Qwen instruct realtime model IDs" in configuration
+    assert "live provider integration" in configuration
     assert "# Data Model" in data_model
     assert "erDiagram" in data_model
     assert "continuous_audio_artifacts" in data_model
     assert "playback_telemetry_events" in data_model
+    assert "user-entered sample text and instructions" in data_model
+    assert "DELETE /api/voice-samples/cache" in data_model
+    assert "full voice sample cache" in data_model
     assert "CREATE TABLE generations" in schema
     assert "CREATE TABLE continuous_audio_artifacts" in schema
     assert "CREATE TABLE playback_telemetry_events" in schema
