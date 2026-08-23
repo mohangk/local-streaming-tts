@@ -56,7 +56,7 @@ def test_instruction_voice_sample_page_has_experiment_controls():
     assert 'id="instruction-sample"' in html
     assert 'id="clear-instruction-samples"' in html
     assert "long-form audiobook" in html
-    assert 'src="/static/instruction-voice-sample.js?v=' in html
+    assert 'src="/static/instruction-voice-sample.js?v=model-voices-1"' in html
 
 
 def test_instruction_voice_sample_javascript_posts_to_instruction_endpoint_without_telemetry():
