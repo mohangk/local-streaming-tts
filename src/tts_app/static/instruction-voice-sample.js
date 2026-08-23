@@ -17,6 +17,7 @@ let options = {
   speeds: [],
   models: [],
   languages: [],
+  voices_by_model: {},
   default_language: "en",
   default_model: "",
   default_speed: 1,
@@ -38,9 +39,16 @@ function renderLanguageOptions() {
 }
 
 function renderVoiceOptions() {
-  voiceSelect.innerHTML = options.voices
+  const voices = options.voices_by_model?.[modelInput.value] || options.voices;
+  const currentVoice = voiceSelect.value;
+  const selectedVoice = voices.some((voice) => String(voice.value) === currentVoice)
+    ? currentVoice
+    : voices.some((voice) => String(voice.value) === String(options.default_voice))
+      ? String(options.default_voice)
+      : String(voices[0]?.value || "");
+  voiceSelect.innerHTML = voices
     .map((voice) => {
-      const selected = String(voice.value) === String(options.default_voice) ? " selected" : "";
+      const selected = String(voice.value) === selectedVoice ? " selected" : "";
       return `<option value="${escapeHtml(voice.value)}"${selected}>${escapeHtml(voice.label)}</option>`;
     })
     .join("");
@@ -78,8 +86,8 @@ async function loadOptions() {
   }
   options = await response.json();
   renderLanguageOptions();
-  renderVoiceOptions();
   renderModelOptions();
+  renderVoiceOptions();
   renderSpeedOptions();
 }
 
@@ -148,6 +156,7 @@ function escapeHtml(value) {
 
 form?.addEventListener("submit", playInstructionSample);
 clearButton?.addEventListener("click", clearSampleCache);
+modelInput?.addEventListener("change", renderVoiceOptions);
 
 loadOptions().catch(() => {
   statusLine.textContent = "Unable to load voice options";

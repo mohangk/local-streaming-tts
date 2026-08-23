@@ -86,6 +86,10 @@ def create_voice_sample_router(voice_sample_cache: VoiceSampleCache) -> APIRoute
             ],
             "models": _option_dicts(tuple(model.option for model in capabilities.models)),
             "voices": _option_dicts(default_model.voices),
+            "voices_by_model": {
+                str(model.option.value): _option_dicts(model.voices)
+                for model in capabilities.models
+            },
             "speeds": _option_dicts(capabilities.speeds),
         }
 

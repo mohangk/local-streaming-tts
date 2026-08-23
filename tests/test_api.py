@@ -248,7 +248,9 @@ def test_instruction_voice_sample_options_only_offer_compatible_voices(test_sett
     response = client.get("/api/voice-sample/options")
 
     assert response.status_code == 200
-    assert response.json() == {
+    payload = response.json()
+    voices_by_model = payload.pop("voices_by_model", None)
+    assert payload == {
         "default_language": "en",
         "default_model": "qwen3-tts-instruct-flash-realtime",
         "default_speed": 1.0,
@@ -301,6 +303,10 @@ def test_instruction_voice_sample_options_only_offer_compatible_voices(test_sett
             {"label": "Pip - playful young boy", "value": "Pip"},
             {"label": "Stella - expressive young woman", "value": "Stella"},
         ],
+    }
+    assert voices_by_model == {
+        "qwen3-tts-instruct-flash-realtime": payload["voices"],
+        "qwen3-tts-instruct-flash-realtime-2026-01-22": payload["voices"],
     }
 
 
@@ -536,6 +542,11 @@ def test_instruction_voice_sample_uses_provider_model_voice_capabilities(test_se
     assert options_response.json()["voices"] == [
         {"value": "Provider Voice", "label": "Provider voice"}
     ]
+    assert options_response.json()["voices_by_model"] == {
+        "qwen3-tts-instruct-flash-realtime": [
+            {"value": "Provider Voice", "label": "Provider voice"}
+        ]
+    }
     assert rejected.status_code == 400
     assert rejected.json()["detail"]["code"] == "unsupported_voice"
     assert provider.calls == []

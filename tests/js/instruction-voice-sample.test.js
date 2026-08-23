@@ -15,6 +15,9 @@ const sampleOptions = {
   languages: [{ value: "en", label: "English" }],
   models: [{ value: "qwen3-tts-instruct-flash-realtime", label: "Qwen Instruct" }],
   voices: [{ value: "Kai", label: "Kai - soothing man" }],
+  voices_by_model: {
+    "qwen3-tts-instruct-flash-realtime": [{ value: "Kai", label: "Kai - soothing man" }],
+  },
   speeds: [{ value: 1, label: "1x" }],
 };
 
@@ -106,6 +109,36 @@ describe("Generate-page voice sampling", () => {
 });
 
 describe("Instruction voice sample page", () => {
+  it("updates voices when the selected model changes", async () => {
+    renderInstructionSamplePage();
+    const modelOptions = {
+      ...sampleOptions,
+      models: [
+        { value: "model-one", label: "Model one" },
+        { value: "model-two", label: "Model two" },
+      ],
+      default_model: "model-one",
+      default_voice: "First Voice",
+      voices: [{ value: "First Voice", label: "First voice" }],
+      voices_by_model: {
+        "model-one": [{ value: "First Voice", label: "First voice" }],
+        "model-two": [{ value: "Second Voice", label: "Second voice" }],
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(globalThis.Response.json(modelOptions)));
+
+    await import("../../src/tts_app/static/instruction-voice-sample.js?test=model-voices");
+    await vi.waitFor(() => expect(document.querySelector("#instruction-voice").value).toBe("First Voice"));
+    const modelSelect = document.querySelector("#instruction-model");
+
+    modelSelect.value = "model-two";
+    modelSelect.dispatchEvent(new globalThis.Event("change", { bubbles: true }));
+
+    expect(document.querySelector("#instruction-voice").value).toBe("Second Voice");
+    expect(document.querySelector("#instruction-voice").textContent).toContain("Second voice");
+    expect(document.querySelector("#instruction-voice").textContent).not.toContain("First voice");
+  });
+
   it("loads options and restores the sample button after a validation error", async () => {
     renderInstructionSamplePage();
     const fetchMock = vi
