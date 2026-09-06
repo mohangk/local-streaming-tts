@@ -76,7 +76,7 @@ class GenerationService:
         options = TTSOptions(
             voice=snapshot.get("voice", voice), speed=snapshot.get("speed", speed),
             language=SAMPLE_LANGUAGES.get(snapshot.get("language"), language),
-            model=snapshot.get("model"), instructions=snapshot.get("instructions", ""),
+            model=snapshot.get("model"), instructions=snapshot.get("instructions"),
         )
         self.storage.update_generation_status(generation_id, "running")
         logger.info(

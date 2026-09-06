@@ -23,12 +23,11 @@ class VoiceSampleRequest(BaseModel):
     language: str = "en"
 
 
-class InstructionVoiceSampleRequest(BaseModel):
+class SynthesisSettingsRequest(BaseModel):
     model: str = Field(max_length=120)
     voice: str = Field(min_length=1, max_length=120)
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     language: str = "en"
-    sample_text: str = Field(max_length=MAX_INSTRUCTION_SAMPLE_CHARS)
     instructions: str = Field(max_length=4000)
 
     @field_validator("model")
@@ -39,6 +38,15 @@ class InstructionVoiceSampleRequest(BaseModel):
             raise ValueError("must not be empty")
         return stripped
 
+    @field_validator("instructions")
+    @classmethod
+    def validate_instructions(cls, value: str) -> str:
+        return value.strip()
+
+
+class InstructionVoiceSampleRequest(SynthesisSettingsRequest):
+    sample_text: str = Field(max_length=MAX_INSTRUCTION_SAMPLE_CHARS)
+
     @field_validator("sample_text")
     @classmethod
     def validate_sample_text(cls, value: str) -> str:
@@ -46,11 +54,6 @@ class InstructionVoiceSampleRequest(BaseModel):
         if not stripped:
             raise ValueError("must not be empty")
         return stripped
-
-    @field_validator("instructions")
-    @classmethod
-    def validate_instructions(cls, value: str) -> str:
-        return value.strip()
 
 
 def _validate_language(language: str) -> None:
@@ -103,3 +106,5 @@ def validate_synthesis(cache, payload):
     _validate_language(payload.language)
     model = _instruction_model(_instruction_capabilities(cache), payload.model)
     _validate_instruction_voice(model, payload.voice)
+    if payload.instructions and not model.supports_instructions:
+        raise HTTPException(400, {"code": "unsupported_instructions", "message": "This model does not support instructions"})

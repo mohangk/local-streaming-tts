@@ -19,6 +19,7 @@ from tts_app.generation import GenerationService
 from tts_app.generation_settings import GenerationSynthesisRequest, resolve_generation_settings
 from tts_app.ocr_providers.registry import get_ocr_provider
 from tts_app.providers.options import SelectOption
+from tts_app.profile_defaults import default_profiles
 from tts_app.providers.registry import get_provider
 from tts_app.routes.ocr import create_ocr_router
 from tts_app.routes.playback import create_playback_router
@@ -89,6 +90,9 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     storage.init_schema()
     broker = EventBroker()
     provider = get_provider(active_settings)
+    capabilities = getattr(provider, "instruction_sample_capabilities", None)
+    if capabilities:
+        storage.initialize_voice_profiles(default_profiles(capabilities))
     voice_sample_cache = VoiceSampleCache(active_settings, provider)
     ocr_provider = get_ocr_provider(active_settings)
     service = GenerationService(

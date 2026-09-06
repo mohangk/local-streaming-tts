@@ -250,6 +250,9 @@ def test_instruction_voice_sample_options_only_offer_compatible_voices(test_sett
     assert response.status_code == 200
     payload = response.json()
     voices_by_model = payload.pop("voices_by_model", None)
+    legacy_model = payload["models"].pop()
+    assert legacy_model["value"] == "qwen3-tts-flash-realtime"
+    assert any(voice["value"] == "Jennifer" for voice in voices_by_model.pop("qwen3-tts-flash-realtime"))
     assert payload == {
         "default_language": "en",
         "default_model": "qwen3-tts-instruct-flash-realtime",
@@ -460,7 +463,7 @@ def test_instruction_voice_sample_rejects_unsupported_model(test_settings, monke
     response = client.post(
         "/api/voice-sample/instruction",
         json={
-            "model": "qwen3-tts-flash-realtime",
+            "model": "unsupported-model",
             "voice": "Kai",
             "speed": 1.0,
             "language": "en",
@@ -473,7 +476,7 @@ def test_instruction_voice_sample_rejects_unsupported_model(test_settings, monke
     assert response.json() == {
         "detail": {
             "code": "unsupported_model",
-            "message": "qwen3-tts-flash-realtime is not supported for instruction samples",
+            "message": "unsupported-model is not supported for instruction samples",
         }
     }
     assert provider.calls == []

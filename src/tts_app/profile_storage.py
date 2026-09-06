@@ -9,7 +9,8 @@ PROFILE_FIELDS = ('name', 'model', 'voice', 'language', 'speed', 'instructions',
 def ensure_profile_schema(conn: sqlite3.Connection) -> None:
     conn.execute('''CREATE TABLE IF NOT EXISTS voice_profiles (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(trim(name)) > 0),
+        name TEXT NOT NULL CHECK(length(trim(name)) > 0),
+        name_key TEXT NOT NULL UNIQUE,
         model TEXT NOT NULL, voice TEXT NOT NULL,
         language TEXT NOT NULL CHECK(language IN ('en', 'zh')),
         speed REAL NOT NULL CHECK(speed BETWEEN 0.5 AND 2.0),
@@ -17,9 +18,22 @@ def ensure_profile_schema(conn: sqlite3.Connection) -> None:
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )''')
+    conn.execute('CREATE TABLE IF NOT EXISTS profile_migrations (version INTEGER PRIMARY KEY)')
 
 
 class ProfileStorageMixin:
+    def initialize_voice_profiles(self, defaults):
+        """Seed exactly once, preserving an intentionally empty profile collection."""
+        with self.connection() as conn:
+            if conn.execute('SELECT 1 FROM profile_migrations WHERE version=1').fetchone():
+                return
+            for profile in defaults:
+                conn.execute(
+                    'INSERT INTO voice_profiles(' + ','.join(PROFILE_FIELDS) + ',name_key) VALUES(?,?,?,?,?,?,?,?)',
+                    tuple(profile[field] for field in PROFILE_FIELDS) + (profile['name'].casefold(),),
+                )
+            conn.execute('INSERT INTO profile_migrations VALUES(1)')
+
     def list_voice_profiles(self):
         with self.connection() as conn:
             return [dict(row) for row in conn.execute('SELECT * FROM voice_profiles ORDER BY id')]
@@ -33,16 +47,16 @@ class ProfileStorageMixin:
 
     def save_voice_profile(self, values, profile_id=None):
         with self.connection() as conn:
-            parameters = tuple(values[field] for field in PROFILE_FIELDS)
+            parameters = tuple(values[field] for field in PROFILE_FIELDS) + (values['name'].casefold(),)
             if profile_id is None:
                 profile_id = conn.execute(
-                    'INSERT INTO voice_profiles (' + ','.join(PROFILE_FIELDS) + ') VALUES (?,?,?,?,?,?,?)',
+                    'INSERT INTO voice_profiles (' + ','.join(PROFILE_FIELDS) + ',name_key) VALUES (?,?,?,?,?,?,?,?)',
                     parameters,
                 ).lastrowid
             else:
                 cursor = conn.execute(
                     'UPDATE voice_profiles SET ' + ','.join(field + '=?' for field in PROFILE_FIELDS)
-                    + ',updated_at=CURRENT_TIMESTAMP WHERE id=?', parameters + (profile_id,),
+                    + ',name_key=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', parameters + (profile_id,),
                 )
                 if not cursor.rowcount:
                     raise KeyError(profile_id)

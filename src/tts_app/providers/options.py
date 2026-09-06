@@ -14,6 +14,7 @@ class SelectOption:
 class InstructionModelCapabilities:
     option: SelectOption
     voices: tuple[SelectOption, ...]
+    supports_instructions: bool = True
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,10 @@ QWEN_INSTRUCTION_SAMPLE_CAPABILITIES = InstructionSampleCapabilities(
     models=tuple(
         InstructionModelCapabilities(option=model, voices=QWEN_INSTRUCTION_VOICES)
         for model in QWEN_INSTRUCTION_MODELS
-    ),
+    ) + (InstructionModelCapabilities(
+        option=SelectOption("qwen3-tts-flash-realtime", "Qwen3 TTS Flash Realtime (legacy, no instructions)"),
+        voices=QWEN_ENGLISH_VOICES, supports_instructions=False,
+    ),),
     speeds=SPEED_OPTIONS,
     default_model="qwen3-tts-instruct-flash-realtime",
     default_voice="Kai",

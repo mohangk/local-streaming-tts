@@ -1,15 +1,13 @@
 from sqlite3 import IntegrityError
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import Field, field_validator
-from tts_app.synthesis import InstructionVoiceSampleRequest, SAMPLE_TEXT, validate_synthesis
-
-AUDIOBOOK_INSTRUCTIONS = 'Read in a calm long-form audiobook style. Use clear articulation, steady pacing, low vocal fatigue, natural sentence endings, and restrained expressiveness. Avoid theatrical delivery, sales energy, exaggerated intonation, whispering, vocal fry, or sharp news-anchor emphasis.'
+from tts_app.synthesis import SynthesisSettingsRequest, MAX_INSTRUCTION_SAMPLE_CHARS, validate_synthesis
 
 
-class VoiceProfileRequest(InstructionVoiceSampleRequest):
+
+class VoiceProfileRequest(SynthesisSettingsRequest):
     name: str = Field(min_length=1, max_length=120)
-    sample_text: str = Field(default='Preview', exclude=True)
-    preview_text: str = Field(min_length=1, max_length=50_000)
+    preview_text: str = Field(min_length=1, max_length=MAX_INSTRUCTION_SAMPLE_CHARS)
 
     @field_validator('name', 'preview_text')
     @classmethod
@@ -22,17 +20,6 @@ class VoiceProfileRequest(InstructionVoiceSampleRequest):
 
 def create_voice_profile_router(storage, cache):
     router = APIRouter(prefix='/api/voice-profiles')
-    # Seed only on the first installation, even when all profiles were subsequently deleted.
-    with storage.connection() as conn:
-        conn.execute('CREATE TABLE IF NOT EXISTS profile_migrations (version INTEGER PRIMARY KEY)')
-        if not conn.execute('SELECT 1 FROM profile_migrations WHERE version=1').fetchone():
-            capabilities = getattr(cache.provider, 'instruction_sample_capabilities', None)
-            if capabilities:
-                for language, name in [('en', 'English audiobook'), ('zh', 'Chinese audiobook')]:
-                    conn.execute('INSERT INTO voice_profiles(name,model,voice,language,speed,instructions,preview_text) VALUES(?,?,?,?,?,?,?)',
-                                 (name, capabilities.default_model, capabilities.default_voice, language, 1.0, AUDIOBOOK_INSTRUCTIONS, SAMPLE_TEXT[language]))
-                conn.execute('INSERT INTO profile_migrations VALUES(1)')
-
     @router.get('')
     async def list_profiles():
         return storage.list_voice_profiles()
