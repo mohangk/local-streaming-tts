@@ -11,6 +11,7 @@ from tts_app.events import EventBroker
 from tts_app.providers.base import TTSOptions, TTSProvider
 from tts_app.segmenter import segment_text
 from tts_app.storage import Storage
+from tts_app.synthesis import SAMPLE_LANGUAGES
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,12 @@ class GenerationService:
         language: str = "Auto",
     ) -> None:
         detail = self.storage.get_generation(generation_id)
+        snapshot = detail["generation"]["settings"]
+        options = TTSOptions(
+            voice=snapshot.get("voice", voice), speed=snapshot.get("speed", speed),
+            language=SAMPLE_LANGUAGES.get(snapshot.get("language"), language),
+            model=snapshot.get("model"), instructions=snapshot.get("instructions", ""),
+        )
         self.storage.update_generation_status(generation_id, "running")
         logger.info(
             "generation_started generation_id=%s provider=%s voice=%s speed=%s segment_count=%s",
@@ -87,7 +94,7 @@ class GenerationService:
                 await self._run_segment(
                     generation_id,
                     text_segment,
-                    TTSOptions(voice=voice, speed=speed, language=language),
+                    options,
                 )
         except asyncio.CancelledError:
             raise

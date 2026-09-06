@@ -16,6 +16,7 @@ from tts_app.config import Settings, load_settings
 from tts_app.events import EventBroker
 from tts_app.extractor import ExtractionError, fetch_and_extract
 from tts_app.generation import GenerationService
+from tts_app.generation_settings import GenerationSynthesisRequest, resolve_generation_settings
 from tts_app.ocr_providers.registry import get_ocr_provider
 from tts_app.providers.options import SelectOption
 from tts_app.providers.registry import get_provider
@@ -30,21 +31,13 @@ from tts_app.voice_samples import VoiceSampleCache
 logger = logging.getLogger(__name__)
 
 
-class TextGenerationRequest(BaseModel):
+class TextGenerationRequest(GenerationSynthesisRequest):
     text: str = Field(min_length=1)
     title: str = "Manual text"
-    voice: str | None = None
-    speed: float = Field(default=1.0, ge=0.5, le=2.0)
-    language: str = "en"
-    autoplay: bool = True
 
 
-class UrlGenerationRequest(BaseModel):
+class UrlGenerationRequest(GenerationSynthesisRequest):
     url: str = Field(min_length=1)
-    voice: str | None = None
-    speed: float = Field(default=1.0, ge=0.5, le=2.0)
-    language: str = "en"
-    autoplay: bool = True
 
 
 class ProgressRequest(BaseModel):
@@ -183,13 +176,13 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
 
     @app.post("/api/generations/text")
     async def submit_text(payload: TextGenerationRequest, background_tasks: BackgroundTasks):
-        _validate_language(payload.language)
-        voice = payload.voice or _default_voice_for_language(active_settings, payload.language)
+        snapshot = resolve_generation_settings(payload, storage, active_settings, provider)
+        voice = snapshot["voice"]
         generation_id = await service.create_from_text(
             text=payload.text,
             title=payload.title,
             voice=voice,
-            settings={"autoplay": payload.autoplay, "speed": payload.speed, "language": payload.language},
+            settings=snapshot,
         )
         logger.info(
             "text_generation_submitted generation_id=%s voice=%s speed=%s text_chars=%s",
@@ -211,8 +204,8 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
 
     @app.post("/api/generations/url")
     async def submit_url(payload: UrlGenerationRequest, background_tasks: BackgroundTasks):
-        _validate_language(payload.language)
-        voice = payload.voice or _default_voice_for_language(active_settings, payload.language)
+        snapshot = resolve_generation_settings(payload, storage, active_settings, provider)
+        voice = snapshot["voice"]
         try:
             extracted = await fetch_and_extract(payload.url)
         except ExtractionError as exc:
@@ -224,7 +217,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
             source_type="url",
             url=extracted.url,
             voice=voice,
-            settings={"autoplay": payload.autoplay, "speed": payload.speed, "language": payload.language},
+            settings=snapshot,
         )
         logger.info(
             "url_generation_submitted generation_id=%s voice=%s speed=%s url=%s text_chars=%s",

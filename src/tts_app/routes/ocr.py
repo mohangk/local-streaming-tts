@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from tts_app.config import Settings
 from tts_app.generation import GenerationService
+from tts_app.generation_settings import GenerationSynthesisRequest, resolve_generation_settings
 from tts_app.ocr_providers.base import OCROptions, OCRProvider, OCRProviderError
 from tts_app.routes.shared import schedule_generation
 from tts_app.storage import Storage
@@ -33,11 +34,7 @@ class OcrDraftUpdateRequest(BaseModel):
     images: list[OcrDraftImageUpdate] = Field(default_factory=list)
 
 
-class OcrDraftGenerationRequest(BaseModel):
-    voice: str | None = None
-    speed: float = Field(default=1.0, ge=0.5, le=2.0)
-    language: str = "en"
-    autoplay: bool = True
+class OcrDraftGenerationRequest(GenerationSynthesisRequest):
     combined_text: str | None = None
 
 
@@ -253,10 +250,11 @@ def create_ocr_router(
 
         if draft["linked_generation_id"] is not None:
             raise HTTPException(status_code=409, detail="ocr draft is already linked to a generation")
+        snapshot = resolve_generation_settings(payload, storage, settings, service.provider, required_language=draft["language"])
         if payload.combined_text is not None:
             storage.update_ocr_draft(
                 draft_id,
-                language=payload.language,
+                language=draft["language"] if payload.profile_id else payload.language,
                 combined_text=payload.combined_text,
                 image_texts={},
             )
@@ -264,7 +262,7 @@ def create_ocr_router(
         reviewed_text = str(draft["combined_text"]).strip()
         if not reviewed_text.strip():
             raise HTTPException(status_code=400, detail="ocr draft text is empty")
-        voice = payload.voice or _default_voice_for_language(settings, payload.language)
+        voice = snapshot["voice"]
         generation_id = await service.create_from_text(
             text=reviewed_text,
             title="Image text",
@@ -272,9 +270,7 @@ def create_ocr_router(
             url=None,
             voice=voice,
             settings={
-                "autoplay": payload.autoplay,
-                "speed": payload.speed,
-                "language": payload.language,
+                **snapshot,
                 "ocr_draft_id": draft_id,
             },
         )
