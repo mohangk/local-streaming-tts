@@ -9,7 +9,7 @@ const profiles = [
 ];
 
 function selectionDom() {
-  document.body.innerHTML = '<div id="voice-panel"><select id="language-select"><option value="en">English</option><option value="zh">Chinese</option></select><select id="profile-select"></select><span id="voice-summary-text"></span><span id="voice-summary-speed"></span><button id="voice-edit">Edit</button><p id="profile-status"></p></div>';
+  document.body.innerHTML = '<div id="voice-panel"><select id="language-select"><option value="en">English</option><option value="zh">Chinese</option></select><select id="profile-select"></select><label id="ocr-language-field"></label><button id="voice-edit">Edit</button><p id="profile-status"></p></div>';
 }
 
 describe('named profile selection', () => {
@@ -33,7 +33,7 @@ describe('named profile selection', () => {
 });
 
 function editorDom() {
-  document.body.innerHTML = `<section id="profile-editor"><select id="editor-profiles"></select><input id="profile-name"><button id="profile-new"></button><button id="profile-duplicate"></button><button id="profile-delete"></button><button id="profile-save"></button><button id="profile-cancel"></button><button id="profile-import"></button><form id="instruction-sample-form"><select id="instruction-language"></select><select id="instruction-model"></select><select id="instruction-voice"></select><select id="instruction-speed"></select><textarea id="instruction-prompt"></textarea><textarea id="instruction-text"></textarea><button id="instruction-sample"></button><button id="clear-instruction-samples"></button><p id="instruction-status"></p></form><audio id="instruction-audio"></audio></section>`;
+  document.body.innerHTML = `<section id="profile-editor"><select id="editor-profiles"></select><input id="profile-name"><button id="profile-save-as"></button><button id="profile-delete"></button><button id="profile-save"></button><button id="profile-cancel"></button><form id="instruction-sample-form"><select id="instruction-language"></select><select id="instruction-model"></select><select id="instruction-voice"></select><select id="instruction-speed"></select><textarea id="instruction-prompt"></textarea><textarea id="instruction-text"></textarea><button id="instruction-sample"></button><button id="clear-instruction-samples"></button><p id="instruction-status"></p></form><audio id="instruction-audio"></audio></section>`;
 }
 
 describe('named profile editor', () => {
@@ -115,29 +115,41 @@ it('requires deletion confirmation and cancel leaves saved profile unchanged', a
   expect(requests).toHaveLength(0);
 });
 
-it('duplicates with POST, deletes only after confirmation, and imports Jennifer without rewriting legacy selection', async () => {
-  const legacy = JSON.stringify({language:'en',voices:{en:'Jennifer'},speed:1.25});
-  window.localStorage.setItem('readvox.voiceSelection.v1',legacy);
-  const {editor, requests,onUse} = await mountEditor();
-  document.querySelector('#profile-duplicate').click();
-  expect(document.querySelector('#profile-name').value).toBe('English audiobook copy');
-  document.querySelector('#profile-save').click();
+it('Save As creates a named voice from unsaved settings without updating the original', async () => {
+  const {requests,onUse,onClose} = await mountEditor(async (url,init)=>({ok:true,json:async()=>({...JSON.parse(init.body),id:99})}));
+  document.querySelector('#instruction-prompt').value = 'New narration';
+  vi.spyOn(window,'prompt').mockReturnValue('  Evening reading  ');
+  document.querySelector('#profile-save-as').click();
   await vi.waitFor(()=>expect(onUse).toHaveBeenCalled());
+  expect(requests).toHaveLength(1);
+  expect(requests[0][0]).toBe('/api/voice-profiles');
   expect(requests[0][1].method).toBe('POST');
-  await editor.open(profiles[0],profiles);
-  expect(document.querySelector('#profile-import').hidden).toBe(false);
-  document.querySelector('#profile-import').click();
-  expect(document.querySelector('#instruction-model').value).toBe('legacy');
-  expect(document.querySelector('#instruction-voice').value).toBe('Jennifer');
-  expect(document.querySelector('#instruction-prompt').value).toBe('');
-  expect(document.querySelector('#instruction-speed').value).toBe('1.25');
-  expect(window.localStorage.getItem('readvox.voiceSelection.v1')).toBe(legacy);
-  await editor.open(profiles[0], profiles);
-  vi.spyOn(window,'confirm').mockReturnValue(true);
-  document.querySelector('#profile-delete').click();
-  await vi.waitFor(()=>expect(onUse).toHaveBeenCalledWith(null));
+  expect(JSON.parse(requests[0][1].body)).toMatchObject({name:'Evening reading',instructions:'New narration'});
+  expect(onUse).toHaveBeenCalledWith(expect.objectContaining({id:99}));
+  expect(onClose).toHaveBeenCalled();
+});
+
+it('cancelled or blank Save As sends nothing and leaves edits intact', async () => {
+  const {requests,onClose} = await mountEditor();
+  document.querySelector('#instruction-text').value = 'Keep my changes';
+  vi.spyOn(window,'prompt').mockReturnValueOnce(null).mockReturnValueOnce(' ');
+  document.querySelector('#profile-save-as').click();
+  document.querySelector('#profile-save-as').click();
+  expect(requests).toHaveLength(0);
+  expect(onClose).not.toHaveBeenCalled();
+  expect(document.querySelector('#instruction-text').value).toBe('Keep my changes');
+});
+
+it('a conflicting Save As keeps the original identity for a later Save', async () => {
+  const {requests} = await mountEditor(async()=>({ok:false,json:async()=>({detail:'Name already exists'})}));
+  vi.spyOn(window,'prompt').mockReturnValue('Existing name');
+  document.querySelector('#profile-save-as').click();
+  await vi.waitFor(()=>expect(document.querySelector('#profile-save').disabled).toBe(false));
+  expect(document.querySelector('#instruction-status').textContent).toBe('Name already exists');
+  document.querySelector('#profile-save').click();
+  await vi.waitFor(()=>expect(requests).toHaveLength(2));
   expect(requests[1][0]).toBe('/api/voice-profiles/1');
-  expect(requests[1][1].method).toBe('DELETE');
+  expect(requests[1][1].method).toBe('PUT');
 });
 
 it('locks mutations during save and restores controls after failure', async () => {
@@ -146,8 +158,8 @@ it('locks mutations during save and restores controls after failure', async () =
   const {editor,requests} = await mountEditor(()=>response);
   document.querySelector('#profile-save').click();
   expect(editor.canLeave()).toBe(false);
-  expect(document.querySelector('#profile-duplicate').disabled).toBe(true);
-  document.querySelector('#profile-duplicate').click();
+  expect(document.querySelector('#profile-save-as').disabled).toBe(true);
+  document.querySelector('#profile-save-as').click();
   expect(document.querySelector('#profile-name').value).toBe('English audiobook');
   finish({ok:false,json:async()=>({detail:'Duplicate name'})});
   await vi.waitFor(()=>expect(document.querySelector('#profile-save').disabled).toBe(false));
@@ -172,6 +184,7 @@ it('keeps OCR recognition language when saving a profile of another language', a
   vi.stubGlobal('fetch', vi.fn(async()=>({ok:true,json:async()=>profiles})));
   const module = await import('../../src/tts_app/static/profile-selection.js');
   await module.loadProfiles();
+  module.setVoiceInputMode('image');
   module.renderVoiceControls({language:'zh'});
   await module.loadProfiles(profiles[0], {language:module.currentLanguage()});
   expect(module.currentLanguage()).toBe('zh');
@@ -195,4 +208,58 @@ it('shows OCR profile rejection in Generate and preserves reviewed draft text', 
   expect(document.querySelector('.ocr-combined-text').value).toBe('Reviewed 中文');
   expect(state.currentOcrDraftId).toBe(42);
   expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({profile_id:1,combined_text:'Reviewed 中文'});
+});
+
+it('Text and URL select all named voices while Image filters by OCR language', async () => {
+  selectionDom();
+  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>profiles})));
+  const module = await import('../../src/tts_app/static/profile-selection.js');
+  module.registerVoiceControlEvents();
+  await module.loadProfiles();
+  expect(document.querySelector('#profile-select').options).toHaveLength(3);
+  const select = document.querySelector('#profile-select');
+  select.value='2'; select.dispatchEvent(new window.Event('change'));
+  expect(module.currentLanguage()).toBe('zh');
+  expect(module.voiceGenerationPayload()).toEqual({profile_id:2});
+  module.setVoiceInputMode('image');
+  expect(select.options).toHaveLength(1);
+  expect(document.querySelector('#ocr-language-field').classList.contains('hidden')).toBe(false);
+  module.setVoiceInputMode('url');
+  expect(select.options).toHaveLength(3);
+  expect(document.querySelector('#ocr-language-field').classList.contains('hidden')).toBe(true);
+});
+
+it('keeps the new identity after Save As succeeds but returning to Generate fails', async () => {
+  const {onUse,requests} = await mountEditor(async (url,init)=>({ok:true,json:async()=>({...JSON.parse(init.body),id:99})}));
+  onUse.mockRejectedValue(new Error('Offline while refreshing voices'));
+  vi.spyOn(window,'prompt').mockReturnValue('New voice');
+  document.querySelector('#profile-save-as').click();
+  await vi.waitFor(()=>expect(document.querySelector('#instruction-status').textContent).toContain('Offline'));
+  expect(document.querySelector('#profile-name').value).toBe('New voice');
+  document.querySelector('#profile-save').click();
+  await vi.waitFor(()=>expect(requests).toHaveLength(2));
+  expect(requests[1][0]).toBe('/api/voice-profiles/99');
+});
+
+it('confirmed deletion removes only the selected saved voice', async () => {
+  const {requests,onUse,onClose} = await mountEditor(async()=>({ok:true}));
+  vi.spyOn(window,'confirm').mockReturnValue(true);
+  document.querySelector('#profile-delete').click();
+  await vi.waitFor(()=>expect(onClose).toHaveBeenCalled());
+  expect(requests).toHaveLength(1);
+  expect(requests[0][0]).toBe('/api/voice-profiles/1');
+  expect(requests[0][1].method).toBe('DELETE');
+  expect(onUse).toHaveBeenCalledWith(null);
+});
+
+it('an empty collection permits creation through Save As, not Save', async () => {
+  const {editor,requests,onUse} = await mountEditor(async(url,init)=>({ok:true,json:async()=>({...JSON.parse(init.body),id:99})}));
+  await editor.open(null,[]);
+  expect(document.querySelector('#profile-save').disabled).toBe(true);
+  expect(document.querySelector('#profile-delete').disabled).toBe(true);
+  expect(document.querySelector('#profile-save-as').disabled).toBe(false);
+  vi.spyOn(window,'prompt').mockReturnValue('First voice');
+  document.querySelector('#profile-save-as').click();
+  await vi.waitFor(()=>expect(onUse).toHaveBeenCalled());
+  expect(requests[0][1].method).toBe('POST');
 });

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Readvox</title>
-    <link rel="stylesheet" href="/static/styles.css?v=profiles-1" />
+    <link rel="stylesheet" href="/static/styles.css?v=voice-editor-2" />
   </head>
   <body>
     <main class="app-shell">
@@ -37,19 +37,14 @@
           <button id="generate-ocr-audio" class="primary-action hidden" type="button">Generate audio</button>
           <div id="ocr-drafts-list" class="history-list hidden"></div>
           <div id="voice-panel" class="voice-panel">
-            <div id="voice-summary" class="voice-summary">
-              <div>
-                <div id="voice-summary-text" class="voice-summary-text">Voice</div>
-                <div id="voice-summary-speed" class="voice-summary-speed">1x</div>
-              </div>
+            <label id="ocr-language-field" class="field-label hidden" for="language-select">OCR language
+              <select id="language-select" aria-label="OCR language"><option value="en">English</option><option value="zh">Chinese</option></select>
+            </label>
+            <label class="field-label" for="profile-select">Voice</label>
+            <div class="named-voice-row">
+              <select id="profile-select" aria-label="Voice"></select>
               <button id="voice-edit" class="secondary-action compact-action" type="button">Edit</button>
             </div>
-            <label class="field-label" for="language-select">Language
-              <select id="language-select" aria-label="Language"><option value="en">English</option><option value="zh">Chinese</option></select>
-            </label>
-            <label class="field-label" for="profile-select">Voice profile
-              <select id="profile-select" aria-label="Voice profile"></select>
-            </label>
             <p id="profile-status" class="status-line" aria-live="polite"></p>
           </div>
           <label class="toggle-row">
@@ -62,16 +57,20 @@
 
 
       <section id="profile-editor" class="view" aria-labelledby="profile-editor-title">
-        <h1 id="profile-editor-title">Voice profiles</h1>
+        <h1 id="profile-editor-title">Edit voice</h1>
+        <div class="profile-save-actions">
+          <button id="profile-save" class="primary-action" type="button">Save</button>
+          <button id="profile-save-as" class="secondary-action" type="button">Save As…</button>
+          <button id="profile-cancel" class="secondary-action" type="button">Cancel</button>
+        </div>
         <div class="panel">
-          <label class="field-label" for="editor-profiles">Saved profiles<select id="editor-profiles"></select></label>
-          <div class="voice-actions">
-            <button id="profile-new" class="secondary-action" type="button">New</button>
-            <button id="profile-duplicate" class="secondary-action" type="button">Duplicate</button>
-            <button id="profile-delete" class="warning-action" type="button">Delete</button>
-            <button id="profile-import" class="secondary-action" type="button" hidden>Import previous voice selection</button>
+          <label class="field-label" for="editor-profiles">Saved voice</label>
+          <div class="named-voice-row">
+            <select id="editor-profiles" aria-label="Saved voice"></select>
+            <button id="profile-delete" class="warning-action compact-action" type="button">Delete</button>
           </div>
-          <label class="field-label" for="profile-name">Profile name<input type="text" id="profile-name" maxlength="120" required></label>
+          <div id="instruction-status" class="status-line" aria-live="polite">Ready</div>
+          <label class="field-label" for="profile-name">Name<input type="text" id="profile-name" maxlength="120" required></label>
         </div>
         <form id="instruction-sample-form" class="panel sample-panel">
           <div class="option-grid">
@@ -80,8 +79,8 @@
               <select id="instruction-language" aria-label="Language"></select>
             </label>
             <label class="field-label" for="instruction-voice">
-              Voice
-              <select id="instruction-voice" aria-label="Voice"></select>
+              Base voice
+              <select id="instruction-voice" aria-label="Base voice"></select>
             </label>
             <label class="field-label" for="instruction-speed">
               Speed
@@ -104,13 +103,8 @@
             <button id="instruction-sample" class="primary-action" type="submit">Preview</button>
             <button id="clear-instruction-samples" class="secondary-action" type="button">Clear samples</button>
           </div>
-          <div id="instruction-status" class="status-line" aria-live="polite">Ready</div>
         </form>
         <audio id="instruction-audio" controls></audio>
-        <div class="voice-actions profile-save-actions">
-          <button id="profile-save" class="primary-action" type="button">Save and use</button>
-          <button id="profile-cancel" class="secondary-action" type="button">Cancel</button>
-        </div>
       </section>
 
       <section id="history-view" class="view" aria-labelledby="history-title">
@@ -151,6 +145,6 @@
     </div>
 
     <audio id="audio-player"></audio>
-    <script type="module" src="/static/app.js?v=profiles-1"></script>
+    <script type="module" src="/static/app.js?v=voice-editor-2"></script>
   </body>
 </html>

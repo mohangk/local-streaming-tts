@@ -8,7 +8,7 @@ export function createProfileEditor({onUse, onClose}) {
   const status = document.querySelector('#instruction-status');
   const save = document.querySelector('#profile-save');
   const remove = document.querySelector('#profile-delete');
-  const importButton = document.querySelector('#profile-import');
+  const saveAs = document.querySelector('#profile-save-as');
   let id = null, saved = '', profiles = [], active = false, busy = false;
   const values = () => ({name:field.value, ...sampleValues()});
   const dirty = () => JSON.stringify(values()) !== saved;
@@ -29,27 +29,16 @@ export function createProfileEditor({onUse, onClose}) {
     saved = JSON.stringify(values());
     selector.value = String(id || '');
     remove.disabled = !id;
+    save.disabled = !id;
     status.textContent = 'Preview changes before saving';
   }
   async function open(profile, available) {
     const options = await sampleReady;
     if (!options) { status.textContent = 'Unable to load voice options'; return; }
     profiles = available;
-    selector.innerHTML = '<option value="">New profile</option>' + profiles.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('');
-    fill(profile || {name:'New profile',model:options.default_model,voice:options.default_voice,language:'en',speed:1,instructions:'',preview_text:'Readvox voice preview.'});
+    selector.innerHTML = (profiles.length ? '' : '<option value="">No saved voices</option>') + profiles.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('');
+    fill(profile || {name:'New voice',model:options.default_model,voice:options.default_voice,language:'en',speed:1,instructions:'',preview_text:'Readvox voice preview.'});
     active = true;
-    let legacy;
-    try { legacy = JSON.parse(window.localStorage.getItem('readvox.voiceSelection.v1') || '{}'); } catch { legacy = {}; }
-    if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) legacy = {};
-    const voice = legacy.voices?.[legacy.language || 'en'];
-    const model = options.models.find(item =>
-      (options.voices_by_model?.[item.value] || options.voices).some(candidate => candidate.value === voice));
-    importButton.hidden = !model || !Number.isFinite(legacy.speed) || legacy.speed < 0.5 || legacy.speed > 2;
-    importButton.onclick = () => {
-      if (!canLeave()) return;
-      fill({name:'Imported voice', model:model.value, voice, language:legacy.language || 'en', speed:legacy.speed, instructions:'', preview_text:'Readvox voice preview.'});
-      saved = '';
-    };
     field.focus();
   }
   function setBusy(value) {
@@ -57,17 +46,28 @@ export function createProfileEditor({onUse, onClose}) {
     document.querySelectorAll('#profile-editor button, #profile-editor select, #profile-editor input, #profile-editor textarea')
       .forEach(control => { control.disabled = value; });
     remove.disabled = value || !id;
+    save.disabled = value || !id;
   }
-  async function persist() {
-    if (busy) return;
+  async function persist(asNew = false) {
+    if (busy || (!id && !asNew)) return;
+    const payload = values();
+    if (asNew) {
+      const name = window.prompt('Save voice as:', payload.name);
+      if (name === null) return;
+      payload.name = name.trim();
+      if (!payload.name) { status.textContent = 'Enter a name for the new voice.'; return; }
+    }
+    const targetId = asNew ? null : id;
     setBusy(true);
     try {
-      const response = await fetch(`/api/voice-profiles${id ? `/${id}` : ''}`, {
-        method:id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values()),
+      const response = await fetch(`/api/voice-profiles${targetId ? `/${targetId}` : ''}`, {
+        method:targetId ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload),
       });
       if (!response.ok) throw new Error(await responseErrorMessage(response, 'Unable to save profile'));
       const profile = await response.json();
-      saved = JSON.stringify(values());
+      profiles = [...profiles.filter(item => item.id !== profile.id), profile];
+      selector.innerHTML = profiles.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('');
+      fill(profile);
       await onUse(profile);
       close();
     } catch (error) { status.textContent = error.message; }
@@ -77,18 +77,11 @@ export function createProfileEditor({onUse, onClose}) {
     if (!canLeave()) { selector.value = String(id || ''); return; }
     const profile = profiles.find(item => String(item.id) === selector.value);
     if (profile) fill(profile);
-    else { fill({...values(),id:null,name:'New profile'}); saved = ''; }
-  });
-  document.querySelector('#profile-new').addEventListener('click', () => {
-    if (!canLeave()) return;
-    fill({...values(), id:null, name:'New profile'}); saved = '';
-  });
-  document.querySelector('#profile-duplicate').addEventListener('click', () => {
-    if (busy) return;
-    fill({...values(), id:null, name:`${field.value} copy`}); saved = '';
+    else { fill({...values(),id:null,name:'New voice'}); saved = ''; }
   });
   document.querySelector('#profile-cancel').addEventListener('click', () => { if (canLeave()) close(); });
-  save.addEventListener('click', persist);
+  save.addEventListener('click', () => persist());
+  saveAs.addEventListener('click', () => persist(true));
   remove.addEventListener('click', async () => {
     if (!id || !canLeave() || !window.confirm(`Delete “${field.value}”? Existing audio will be kept.`)) return;
     setBusy(true);

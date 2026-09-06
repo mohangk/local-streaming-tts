@@ -40,11 +40,12 @@ import {
   registerVoiceControlEvents,
   renderVoiceControls,
   setVoiceControlsHidden,
+  setVoiceInputMode,
   refreshGenerationPayload,
   loadProfiles,
   selectedProfile,
-} from "./profile-selection.js?v=profiles-1";
-import { createProfileEditor } from "./profile-editor.js?v=profiles-1";
+} from "./profile-selection.js?v=voice-editor-2";
+import { createProfileEditor } from "./profile-editor.js?v=voice-editor-2";
 
 const playbackTelemetry = createPlaybackTelemetry();
 const enqueueProgressSave = createQueuedProgressSaver(persistProgress);
@@ -74,6 +75,7 @@ function showView(viewId) {
 
 function setInputMode(mode) {
   state.inputMode = mode;
+  setVoiceInputMode(mode, {language: mode === "image" ? state.currentOcrDraft?.language : undefined});
   const isText = mode === "text";
   const isUrl = mode === "url";
   const isImage = mode === "image";

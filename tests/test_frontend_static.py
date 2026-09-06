@@ -57,7 +57,7 @@ def test_instruction_voice_sample_page_has_profile_controls():
     assert 'id="instruction-sample"' in html
     assert 'id="clear-instruction-samples"' in html
     assert "long-form audiobook" in html
-    assert 'src="/static/app.js?v=profiles-1"' in html
+    assert 'src="/static/app.js?v=voice-editor-2"' in html
 
 
 def test_instruction_voice_sample_javascript_posts_to_instruction_endpoint_without_telemetry():
@@ -129,8 +129,8 @@ def test_frontend_static_asset_version_bumped_for_playback_progress():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     sources = [html, *((STATIC_DIR / filename).read_text(encoding="utf-8") for filename in JS_FILES)]
 
-    assert 'href="/static/styles.css?v=profiles-1"' in html
-    assert 'src="/static/app.js?v=profiles-1"' in html
+    assert 'href="/static/styles.css?v=voice-editor-2"' in html
+    assert 'src="/static/app.js?v=voice-editor-2"' in html
     assert "playback-progress-1" in (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     assert './ocr.js?v=profiles-1' in (STATIC_DIR / 'app.js').read_text(encoding='utf-8')
     assert "playback-progress-1" in (STATIC_DIR / "voice-controls.js").read_text(encoding="utf-8")
@@ -143,8 +143,8 @@ def test_frontend_static_asset_version_bumped_for_playback_progress():
 def test_frontend_voice_profiles_have_compact_selection_and_separate_editor():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     assert 'id="profile-select"' in html
-    assert 'id="voice-summary-text"' in html
-    assert 'id="voice-summary-speed"' in html
+    assert 'id="voice-summary-text"' not in html
+    assert 'id="voice-summary-speed"' not in html
     assert 'id="voice-edit"' in html
     assert 'id="voice-expanded"' not in html
     assert 'id="profile-editor" class="view"' in html
@@ -692,3 +692,17 @@ def test_package_includes_frontend_static_assets():
     assert "static/*.html" in package_data
     assert "static/*.css" in package_data
     assert "static/*.js" in package_data
+
+
+def test_voice_editor_actions_precede_selection_and_remove_old_creation_controls():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    editor = html.split('id="profile-editor"', 1)[1].split('id="history-view"', 1)[0]
+    assert editor.index('id="profile-save"') < editor.index('id="editor-profiles"')
+    assert editor.index('id="profile-save-as"') < editor.index('id="editor-profiles"')
+    assert editor.index('id="profile-cancel"') < editor.index('id="editor-profiles"')
+    assert editor.count('id="profile-save"') == 1
+    assert editor.count('id="profile-cancel"') == 1
+    for obsolete in ('profile-import', 'profile-duplicate', 'profile-new'):
+        assert f'id="{obsolete}"' not in html
+    assert 'aria-label="Base voice"' in editor
+    assert 'aria-label="OCR language"' in html

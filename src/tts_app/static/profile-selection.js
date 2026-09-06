@@ -1,4 +1,4 @@
-import { escapeHtml, formatSpeed } from './utils.js?v=playback-progress-1';
+import { escapeHtml } from './utils.js?v=playback-progress-1';
 import { clearSamplePlayback } from './voice-controls.js?v=long-samples-1';
 export { clearSamplePlayback };
 
@@ -6,6 +6,7 @@ const languageSelect = document.querySelector('#language-select');
 const selector = document.querySelector('#profile-select');
 const key = 'readvox.profileSelection.v1';
 let profiles = [];
+let inputMode = 'text';
 let editProfile = () => {};
 
 function readSelection() {
@@ -30,16 +31,16 @@ export function voiceGenerationPayload() {
 export function renderVoiceControls({language} = {}) {
   if (!selector) return;
   languageSelect.value = language || currentLanguage() || readSelection().language || 'en';
-  const matching = profiles.filter(profile => profile.language === currentLanguage());
-  const selected = matching.find(profile => profile.id === readSelection()[currentLanguage()]) || matching[0];
+  const matching = inputMode === 'image' ? profiles.filter(profile => profile.language === currentLanguage()) : profiles;
+  const selected = matching.find(profile => profile.id === readSelection()[currentLanguage()])
+    || matching.find(profile => profile.language === currentLanguage()) || matching[0];
   selector.innerHTML = matching.map(profile => `<option value="${profile.id}">${escapeHtml(profile.name)}</option>`).join('');
   if (selected) selector.value = String(selected.id);
-  updateSummary();
+  rememberSelection();
 }
-function updateSummary() {
+function rememberSelection() {
   const profile = selectedProfile();
-  document.querySelector('#voice-summary-text').textContent = profile?.voice || 'No profile — choose Edit to create one';
-  document.querySelector('#voice-summary-speed').textContent = profile ? formatSpeed(profile.speed) : '';
+  if (profile && inputMode !== 'image') languageSelect.value = profile.language;
   remember(profile);
 }
 export async function loadProfiles(useProfile = null, {language} = {}) {
@@ -61,7 +62,7 @@ export function setVoiceControlsHidden(hidden) { document.querySelector('#voice-
 export function registerVoiceControlEvents({onEdit} = {}) {
   editProfile = onEdit || editProfile;
   languageSelect?.addEventListener('change', () => renderVoiceControls());
-  selector?.addEventListener('change', updateSummary);
+  selector?.addEventListener('change', rememberSelection);
   document.querySelector('#voice-edit')?.addEventListener('click', () => editProfile(selectedProfile(), profiles));
   if (languageSelect) languageSelect.value = readSelection().language || 'en';
 }
@@ -69,4 +70,10 @@ export function registerVoiceControlEvents({onEdit} = {}) {
 export async function refreshGenerationPayload() {
   await loadProfiles();
   return voiceGenerationPayload();
+}
+
+export function setVoiceInputMode(mode, {language} = {}) {
+  inputMode = mode;
+  document.querySelector('#ocr-language-field')?.classList.toggle('hidden', mode !== 'image');
+  renderVoiceControls({language});
 }
