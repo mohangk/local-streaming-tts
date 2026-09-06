@@ -44,10 +44,10 @@ def test_frontend_has_generate_history_and_playback_views():
     assert '<script type="module" src="/static/app.js?v=' in html
 
 
-def test_instruction_voice_sample_page_has_experiment_controls():
-    html = (STATIC_DIR / "voice-sample.html").read_text(encoding="utf-8")
+def test_instruction_voice_sample_page_has_profile_controls():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
-    assert "<title>Readvox Voice Sample</title>" in html
+    assert 'id="profile-editor"' in html
     assert 'id="instruction-model"' in html
     assert 'id="instruction-language"' in html
     assert 'id="instruction-voice"' in html
@@ -57,7 +57,7 @@ def test_instruction_voice_sample_page_has_experiment_controls():
     assert 'id="instruction-sample"' in html
     assert 'id="clear-instruction-samples"' in html
     assert "long-form audiobook" in html
-    assert 'src="/static/instruction-voice-sample.js?v=model-voices-1"' in html
+    assert 'src="/static/app.js?v=profiles-1"' in html
 
 
 def test_instruction_voice_sample_javascript_posts_to_instruction_endpoint_without_telemetry():
@@ -132,7 +132,7 @@ def test_frontend_static_asset_version_bumped_for_playback_progress():
     assert 'href="/static/styles.css?v=profiles-1"' in html
     assert 'src="/static/app.js?v=profiles-1"' in html
     assert "playback-progress-1" in (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    assert "playback-progress-1" in (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
+    assert './ocr.js?v=profiles-1' in (STATIC_DIR / 'app.js').read_text(encoding='utf-8')
     assert "playback-progress-1" in (STATIC_DIR / "voice-controls.js").read_text(encoding="utf-8")
     for source in sources:
         assert "continuous-playback-1" not in source

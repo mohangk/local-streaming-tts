@@ -22,7 +22,7 @@ import {
   urlModeButton,
   views,
 } from "./dom.js?v=playback-progress-1";
-import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=playback-progress-1";
+import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=profiles-1";
 import {
   buildProgressPayload,
   chooseResumeSegmentIndex,
@@ -197,12 +197,14 @@ async function loadOptions() {
 }
 
 async function openProfileEditor() {
-  const profiles = await loadProfiles();
-  const profile = selectedProfile();
-  stopPlayback();
-  showView("profile-editor");
-  await profileEditor.open(profile, profiles);
-  editorOpen = true;
+  try {
+    const profiles = await loadProfiles();
+    const profile = selectedProfile();
+    stopPlayback();
+    showView("profile-editor");
+    await profileEditor.open(profile, profiles);
+    editorOpen = true;
+  } catch (error) { document.querySelector("#profile-status").textContent = error.message; }
 }
 
 async function loadHistory() {

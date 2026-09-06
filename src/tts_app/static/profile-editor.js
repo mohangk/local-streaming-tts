@@ -40,6 +40,7 @@ export function createProfileEditor({onUse, onClose}) {
     active = true;
     let legacy;
     try { legacy = JSON.parse(window.localStorage.getItem('readvox.voiceSelection.v1') || '{}'); } catch { legacy = {}; }
+    if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) legacy = {};
     const voice = legacy.voices?.[legacy.language || 'en'];
     const model = options.models.find(item =>
       (options.voices_by_model?.[item.value] || options.voices).some(candidate => candidate.value === voice));

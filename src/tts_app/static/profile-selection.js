@@ -9,7 +9,10 @@ let profiles = [];
 let editProfile = () => {};
 
 function readSelection() {
-  try { return JSON.parse(window.localStorage.getItem(key) || '{}'); } catch { return {}; }
+  try {
+    const value = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch { return {}; }
 }
 function remember(profile) {
   if (!profile) return;

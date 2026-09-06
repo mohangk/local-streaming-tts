@@ -22,6 +22,7 @@ const sampleOptions = {
 };
 
 function renderInstructionSamplePage() {
+  vi.spyOn(window.HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   document.body.innerHTML = `
     <form id="instruction-sample-form">
       <select id="instruction-language"></select>

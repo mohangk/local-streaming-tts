@@ -590,6 +590,7 @@ async function generateOcrAudio(button = null) {
           return;
         }
         playerStatus.textContent = error.detail || "Image audio generation failed";
+        document.querySelector("#profile-status").textContent = typeof error.detail === "string" ? error.detail : "Image audio generation failed";
         return;
       }
       const result = await response.json();
