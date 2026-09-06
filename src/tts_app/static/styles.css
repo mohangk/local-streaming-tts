@@ -98,3 +98,10 @@ textarea { resize: vertical; min-height: 220px; }
 .text-segment.active-segment { border-left-color: #1769d1; background: #eef5ff; }
 .bottom-nav { position: fixed; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; background: #ffffff; border-top: 1px solid #d8dde6; }
 @media (min-width: 800px) { .app-shell { padding-bottom: 28px; } .option-grid { grid-template-columns: 1fr 160px; } .bottom-nav { position: static; max-width: 760px; margin: 0 auto 24px; border: 0; background: transparent; } }
+
+#profile-editor input, #profile-editor select, #profile-editor textarea,
+#voice-panel select { width: 100%; min-width: 0; }
+#profile-editor .voice-actions { flex-wrap: wrap; }
+#profile-editor audio { width: 100%; margin: 1rem 0; }
+.profile-save-actions { margin: 1rem 0; }
+#voice-panel .field-label { margin-top: .75rem; }

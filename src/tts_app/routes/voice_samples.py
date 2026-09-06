@@ -20,7 +20,7 @@ def create_voice_sample_router(voice_sample_cache: VoiceSampleCache) -> APIRoute
 
     @router.get("/voice-sample", response_class=HTMLResponse)
     async def voice_sample_page() -> str:
-        return _static_file("voice-sample.html").read_text(encoding="utf-8")
+        return _static_file("index.html").read_text(encoding="utf-8")
 
     @router.get("/api/voice-sample/options")
     async def instruction_voice_sample_options():

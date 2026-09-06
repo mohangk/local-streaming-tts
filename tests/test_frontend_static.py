@@ -14,6 +14,8 @@ APP_JS_FILES = (
     "playback.js",
     "telemetry.js",
     "voice-controls.js",
+    "profile-selection.js",
+    "profile-editor.js",
     "state.js",
     "dom.js",
     "utils.js",
@@ -34,10 +36,9 @@ def test_frontend_has_generate_history_and_playback_views():
     assert 'id="playback-view"' in html
     assert 'id="autoplay"' in html
     assert 'id="language-select"' in html
-    assert 'id="voice-select"' in html
-    assert 'id="voice-star"' in html
-    assert 'id="voice-sample"' in html
-    assert 'id="speed-select"' in html
+    assert 'id="profile-select"' in html
+    assert 'id="profile-editor"' in html
+    assert 'id="instruction-sample"' in html
     assert 'href="/static/styles.css?v=' in html
     assert 'src="/static/app.js?v=' in html
     assert '<script type="module" src="/static/app.js?v=' in html
@@ -107,9 +108,9 @@ def test_frontend_imports_voice_controls_module():
     app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     voice_controls_js = (STATIC_DIR / "voice-controls.js").read_text(encoding="utf-8")
 
-    assert 'from "./voice-controls.js?v=' in app_js
+    assert 'from "./profile-selection.js?v=' in app_js
     assert "renderVoiceControls" in app_js
-    assert "voiceGenerationPayload" in app_js
+    assert "refreshGenerationPayload" in app_js
     assert "export function renderVoiceControls" in voice_controls_js
     assert "export function voiceGenerationPayload" in voice_controls_js
 
@@ -128,8 +129,8 @@ def test_frontend_static_asset_version_bumped_for_playback_progress():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     sources = [html, *((STATIC_DIR / filename).read_text(encoding="utf-8") for filename in JS_FILES)]
 
-    assert 'href="/static/styles.css?v=playback-progress-1"' in html
-    assert 'src="/static/app.js?v=long-samples-1"' in html
+    assert 'href="/static/styles.css?v=profiles-1"' in html
+    assert 'src="/static/app.js?v=profiles-1"' in html
     assert "playback-progress-1" in (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     assert "playback-progress-1" in (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
     assert "playback-progress-1" in (STATIC_DIR / "voice-controls.js").read_text(encoding="utf-8")
@@ -139,22 +140,16 @@ def test_frontend_static_asset_version_bumped_for_playback_progress():
         assert "playback-telemetry-1" not in source
 
 
-def test_frontend_voice_controls_are_collapsed_by_default():
+def test_frontend_voice_profiles_have_compact_selection_and_separate_editor():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
-    js = frontend_js()
-
-    assert 'id="voice-panel"' in html
-    assert 'id="voice-summary"' in html
+    assert 'id="profile-select"' in html
     assert 'id="voice-summary-text"' in html
     assert 'id="voice-summary-speed"' in html
     assert 'id="voice-edit"' in html
-    assert 'id="voice-expanded" class="voice-expanded hidden"' in html
-    assert 'id="voice-done"' in html
-    assert ".voice-panel-expanded .voice-summary" in css
-    assert ".voice-panel-expanded .voice-expanded" in css
-    assert "voiceEditButton?.addEventListener" in js
-    assert "voiceDoneButton?.addEventListener" in js
+    assert 'id="voice-expanded"' not in html
+    assert 'id="profile-editor" class="view"' in html
+    assert 'id="profile-save"' in html
+    assert 'id="profile-cancel"' in html
 
 
 def test_frontend_javascript_uses_history_and_event_endpoints():
@@ -361,7 +356,7 @@ def test_frontend_renders_one_combined_ocr_textarea_and_active_thumbnails():
 def test_frontend_reports_successful_ocr_deletes_without_reading_204_body():
     js = frontend_js()
     draft_deleter = js.split("async function deleteOcrDraft", 1)[1].split("async function generateOcrAudio", 1)[0]
-    image_deleter = js.split("async function deleteOcrDraftImage", 1)[1].split("async function openGeneration", 1)[0]
+    image_deleter = (STATIC_DIR / "ocr.js").read_text(encoding="utf-8").split("async function deleteOcrDraftImage", 1)[1]
 
     assert "await response.json()" not in draft_deleter
     assert "await response.json()" not in image_deleter

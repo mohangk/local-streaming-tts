@@ -565,7 +565,9 @@ async function generateOcrAudio(button = null) {
     stopPlayback();
     state.autoplay = autoplayInput.checked;
     const combinedText = reviewedOcrText();
-    const voicePayload = voiceGenerationPayload();
+    let voicePayload;
+    try { voicePayload = await voiceGenerationPayload(); }
+    catch (error) { document.querySelector('#profile-status').textContent = error.message; return; }
     playerStatus.textContent = "Generating audio...";
     try {
       const response = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}/generation`, {

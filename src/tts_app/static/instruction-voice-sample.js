@@ -24,6 +24,7 @@ let options = {
   default_voice: "",
 };
 let objectUrl = null;
+let previewEpoch = 0;
 
 function languageLabel(language) {
   return { en: "English", zh: "Chinese" }[language] || language || "Auto";
@@ -93,6 +94,7 @@ async function loadOptions() {
 
 async function playInstructionSample(event) {
   event.preventDefault();
+  const epoch = ++previewEpoch;
   const payload = {
     model: modelInput.value,
     voice: voiceSelect.value,
@@ -114,6 +116,7 @@ async function playInstructionSample(event) {
       return;
     }
     const blob = await response.blob();
+    if (epoch !== previewEpoch) return;
     clearObjectUrl();
     objectUrl = URL.createObjectURL(blob);
     audio.src = objectUrl;
@@ -127,6 +130,7 @@ async function playInstructionSample(event) {
 }
 
 async function clearSampleCache() {
+  stopSamplePlayback();
   clearButton.disabled = true;
   statusLine.textContent = "Clearing samples...";
   try {
@@ -158,6 +162,26 @@ form?.addEventListener("submit", playInstructionSample);
 clearButton?.addEventListener("click", clearSampleCache);
 modelInput?.addEventListener("change", renderVoiceOptions);
 
-loadOptions().catch(() => {
+export const sampleReady = loadOptions().then(() => options).catch(() => {
   statusLine.textContent = "Unable to load voice options";
 });
+
+export function sampleValues() {
+  return {model: modelInput.value, voice: voiceSelect.value, language: languageSelect.value,
+    speed: Number(speedSelect.value || 1), instructions: promptInput.value, preview_text: textInput.value};
+}
+export function setSampleValues(profile) {
+  modelInput.value = profile.model;
+  renderVoiceOptions();
+  voiceSelect.value = profile.voice;
+  languageSelect.value = profile.language;
+  if (![...speedSelect.options].some(option => Number(option.value) === Number(profile.speed))) {
+    const option = document.createElement('option');
+    option.value = String(profile.speed); option.textContent = `${profile.speed}x`;
+    speedSelect.append(option);
+  }
+  speedSelect.value = String(profile.speed);
+  promptInput.value = profile.instructions;
+  textInput.value = profile.preview_text;
+}
+export function stopSamplePlayback() { previewEpoch += 1; audio.pause(); }
