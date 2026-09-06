@@ -46,7 +46,7 @@ OCR image workflows are staged as drafts until the user creates audio:
 
 `voice_preferences` stores the user's preferred voice per language.
 
-Voice sample audio is cached under `data/audio/voice-samples/` by provider/model/language/voice/speed/sample-text hash. Normal Generate-page samples use fixed app text; `/voice-sample` instruction experiments can generate cached audio from user-entered sample text and instructions. The complete sample text and configured segment boundary participate in the cache key. Text longer than the segment boundary is synthesized sequentially and concatenated into one atomic MP3 cache file; a failed or canceled segment leaves no partial cache entry. These cache files are not generation History rows and are not removed by generation deletion. `DELETE /api/voice-samples/cache`, exposed by the experiment page's Clear samples control, removes the full voice sample cache, including both fixed-text samples and instruction experiment samples. Cache-clear failures are returned to the client rather than reported as successful.
+Voice sample audio is cached under `data/audio/voice-samples/` by provider/model/language/voice/speed/sample-text hash. The profile editor, also available at `/voice-sample`, generates cached audio from current unsaved preview text and instructions. The legacy fixed-text sample API remains compatible. The complete sample text and configured segment boundary participate in the cache key. Text longer than the segment boundary is synthesized sequentially and concatenated into one atomic MP3 cache file; a failed or canceled segment leaves no partial cache entry. These cache files are not generation History rows and are not removed by generation deletion. `DELETE /api/voice-samples/cache`, exposed by the profile editor's Clear samples control, removes the full voice sample cache, including both fixed-text samples and instruction preview samples. Cache-clear failures are returned to the client rather than reported as successful.
 
 ## Playback Telemetry
 
@@ -58,3 +58,9 @@ Voice sample audio is cached under `data/audio/voice-samples/` by provider/model
 - Deleting a generation removes its cached audio directory.
 - Deleting an unlinked OCR draft removes its stored source image directory.
 - Deleting an image generation force-deletes its linked OCR draft and image directories.
+
+## Voice profiles
+
+`voice_profiles` stores ID, trimmed name, Unicode case-folded unique `name_key`, model, voice, language, speed, instructions, preview text, and creation/update timestamps. `profile_migrations` records one-time default initialization. Profile deletion has no generation/audio cleanup path.
+
+New profile-based generation `settings_json` snapshots `profile_id`, `profile_name`, `model`, `voice`, `language`, `speed`, and `instructions`. These are historical values, not live references. Legacy generations are never backfilled with assumed model metadata. Existing voice preferences are preserved independently of profiles.

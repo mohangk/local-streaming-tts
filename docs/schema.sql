@@ -113,3 +113,19 @@ CREATE TABLE ocr_draft_images (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(ocr_draft_id, position)
 );
+
+CREATE TABLE voice_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL CHECK(length(trim(name)) > 0),
+    name_key TEXT NOT NULL UNIQUE,
+    model TEXT NOT NULL,
+    voice TEXT NOT NULL,
+    language TEXT NOT NULL CHECK(language IN ('en', 'zh')),
+    speed REAL NOT NULL CHECK(speed BETWEEN 0.5 AND 2.0),
+    instructions TEXT NOT NULL,
+    preview_text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE profile_migrations (version INTEGER PRIMARY KEY);

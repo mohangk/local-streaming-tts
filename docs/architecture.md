@@ -123,7 +123,7 @@ set +a
 RUN_QWEN_INTEGRATION=1 .venv/bin/pytest -m live_provider -q
 ```
 
-The live canary should remain deliberately narrow: one API request, one documented model/voice combination, a temporary data directory, a non-empty audio assertion, and a check that sampling does not create a History entry. It is an integration health check, not an exhaustive provider voice test.
+The live canary should remain deliberately narrow: one generation API request using a saved instruction profile, one documented model/voice combination, a temporary data directory, and a non-empty audio assertion. Deterministic tests verify that preview sampling does not create a History entry. It is an integration health check, not an exhaustive provider voice test.
 
 Prefer focused tests first:
 
@@ -153,3 +153,11 @@ Commit history should tell the same story as the architecture: tooling/config, p
 After every non-trivial change, run an architecture review against this document before merging or pushing to `main`. The review should look for boundary drift, accidental data-loss paths, provider calls leaking outside adapters, frontend monolith growth, missing focused tests, and commit history that hides architectural decisions.
 
 Use `docs/architecture-review-subagent.md` as the review prompt. Treat findings as code review comments: fix high-risk issues before merge, document intentional exceptions, and keep the review focused on project architecture rather than style preferences.
+
+## Named Voice Profiles
+
+`profile_storage.py` supplies Storage's profile CRUD and one-time default seeding. `synthesis.py` owns the shared request limits, capability validation, and language mapping used by previews and profiles. `generation_settings.py` resolves profile IDs into immutable per-generation settings snapshots before any generation or OCR draft mutation. `routes/voice_profiles.py` owns only the API contract and delegates persistence.
+
+The profile has no foreign key into generations: deletion cannot remove audio or rewrite snapshots. `profile_migrations` records default seeding so deliberately deleting all profiles stays effective after restart. Existing generations without model metadata remain unchanged.
+
+`profile-selection.js` manages compact selection and browser persistence; `profile-editor.js` manages named editing with the existing instruction sample controller. `app.js` orchestrates views without reloading the page. OCR recognition language remains tied to its draft, even when an edited profile has a different language.

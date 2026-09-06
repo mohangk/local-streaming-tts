@@ -17,7 +17,7 @@ def test_legacy_qwen_model_is_ignored(monkeypatch):
 
     settings = load_settings()
 
-    assert settings.qwen_model == "qwen3-tts-flash-realtime"
+    assert settings.qwen_model == "qwen3-tts-instruct-flash-realtime"
 
 
 def test_ocr_model_env_replaces_legacy_qwen_ocr_model(monkeypatch):
@@ -43,4 +43,4 @@ def test_default_voice_config_does_not_read_legacy_qwen_voice(monkeypatch):
 
     settings = load_settings()
 
-    assert settings.default_english_voice == "Jennifer"
+    assert settings.default_english_voice == "Kai"

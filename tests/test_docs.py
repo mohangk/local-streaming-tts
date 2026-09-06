@@ -70,15 +70,15 @@ def test_handoff_docs_exist_and_cover_local_operations():
     assert "TTS_DEFAULT_CHINESE_VOICE" in configuration
     assert "data/images/" in configuration
     assert "Voice samples" in configuration
-    assert "do not create History entries" in configuration
+    assert "Previewing never creates a History entry" in configuration
     assert "/voice-sample" in configuration
-    assert "server-allowed Qwen instruct realtime model IDs" in configuration
+    assert "Model/voice capabilities and language validation are shared" in configuration
     assert "live provider integration" in configuration
     assert "# Data Model" in data_model
     assert "erDiagram" in data_model
     assert "continuous_audio_artifacts" in data_model
     assert "playback_telemetry_events" in data_model
-    assert "user-entered sample text and instructions" in data_model
+    assert "current unsaved preview text and instructions" in data_model
     assert "DELETE /api/voice-samples/cache" in data_model
     assert "full voice sample cache" in data_model
     assert "CREATE TABLE generations" in schema
@@ -184,10 +184,10 @@ def test_systemd_setup_files_match_vps_pattern():
     assert "journalctl -u tts -f" in readme
     assert "TTS_PROVIDER=qwen" in env_example
     assert "DASHSCOPE_API_KEY=" in env_example
-    assert "TTS_MODEL=qwen3-tts-flash-realtime" in env_example
+    assert "TTS_MODEL=qwen3-tts-instruct-flash-realtime" in env_example
     assert "OCR_PROVIDER=qwen" in env_example
     assert "OCR_MODEL=qwen-vl-ocr" in env_example
-    assert "TTS_DEFAULT_ENGLISH_VOICE=Jennifer" in env_example
+    assert "TTS_DEFAULT_ENGLISH_VOICE=Kai" in env_example
     assert "TTS_DEFAULT_CHINESE_VOICE=Cherry" in env_example
     assert "QWEN_MODEL=" not in env_example
     assert "QWEN_OCR_MODEL=" not in env_example
