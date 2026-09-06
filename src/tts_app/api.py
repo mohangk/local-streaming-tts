@@ -22,6 +22,7 @@ from tts_app.providers.registry import get_provider
 from tts_app.routes.ocr import create_ocr_router
 from tts_app.routes.playback import create_playback_router
 from tts_app.routes.shared import schedule_generation
+from tts_app.routes.voice_profiles import create_voice_profile_router
 from tts_app.routes.voice_samples import create_voice_sample_router
 from tts_app.storage import PLAYBACK_TELEMETRY_EVENT_NAMES, Storage, validate_playback_telemetry_session_id
 from tts_app.voice_samples import VoiceSampleCache
@@ -113,6 +114,7 @@ def create_app(settings: Settings | None = None, run_background_inline: bool = F
     app.state.service = service
     app.state.ocr_provider = ocr_provider
     app.include_router(create_playback_router(settings=active_settings, storage=storage, service=service))
+    app.include_router(create_voice_profile_router(storage, voice_sample_cache))
     app.include_router(create_voice_sample_router(voice_sample_cache=voice_sample_cache))
     app.include_router(
         create_ocr_router(
