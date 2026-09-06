@@ -565,7 +565,9 @@ async function generateOcrAudio(button = null) {
     stopPlayback();
     state.autoplay = autoplayInput.checked;
     const combinedText = reviewedOcrText();
-    const voicePayload = voiceGenerationPayload();
+    let voicePayload;
+    try { voicePayload = await voiceGenerationPayload(); }
+    catch (error) { document.querySelector('#profile-status').textContent = error.message; return; }
     playerStatus.textContent = "Generating audio...";
     try {
       const response = await fetch(`/api/ocr-drafts/${state.currentOcrDraftId}/generation`, {
@@ -588,6 +590,7 @@ async function generateOcrAudio(button = null) {
           return;
         }
         playerStatus.textContent = error.detail || "Image audio generation failed";
+        document.querySelector("#profile-status").textContent = typeof error.detail === "string" ? error.detail : "Image audio generation failed";
         return;
       }
       const result = await response.json();

@@ -22,7 +22,7 @@ import {
   urlModeButton,
   views,
 } from "./dom.js?v=playback-progress-1";
-import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=playback-progress-1";
+import { initOcr, registerOcrEvents, syncOcrInputMode } from "./ocr.js?v=profiles-1";
 import {
   buildProgressPayload,
   chooseResumeSegmentIndex,
@@ -40,13 +40,28 @@ import {
   registerVoiceControlEvents,
   renderVoiceControls,
   setVoiceControlsHidden,
-  voiceGenerationPayload,
-} from "./voice-controls.js?v=long-samples-1";
+  setVoiceInputMode,
+  refreshGenerationPayload,
+  loadProfiles,
+  selectedProfile,
+} from "./profile-selection.js?v=voice-editor-2";
+import { createProfileEditor } from "./profile-editor.js?v=voice-editor-2";
 
 const playbackTelemetry = createPlaybackTelemetry();
 const enqueueProgressSave = createQueuedProgressSaver(persistProgress);
 
+let editorOpen = false;
+const profileEditor = createProfileEditor({
+  onUse: profile => loadProfiles(profile, {language: state.inputMode === "image" ? currentLanguage() : undefined}),
+  onClose: () => { editorOpen = false; showView("generate-view"); document.querySelector("#voice-edit").focus(); },
+});
+
 function showView(viewId) {
+  if (editorOpen && viewId !== "profile-editor") {
+    if (!profileEditor.canLeave()) return;
+    editorOpen = false;
+    profileEditor.leave();
+  }
   views.forEach((view) => {
     view.classList.toggle("active-view", view.id === viewId);
   });
@@ -60,6 +75,7 @@ function showView(viewId) {
 
 function setInputMode(mode) {
   state.inputMode = mode;
+  setVoiceInputMode(mode, {language: mode === "image" ? state.currentOcrDraft?.language : undefined});
   const isText = mode === "text";
   const isUrl = mode === "url";
   const isImage = mode === "image";
@@ -130,10 +146,10 @@ async function submitGeneration(event) {
   const isText = state.inputMode === "text";
   const endpoint = isText ? "/api/generations/text" : "/api/generations/url";
   state.autoplay = autoplayInput.checked;
-  const payload = {
-    autoplay: state.autoplay,
-    ...voiceGenerationPayload(),
-  };
+  let synthesis;
+  try { synthesis = await refreshGenerationPayload(); }
+  catch (error) { document.querySelector('#profile-status').textContent = error.message; return; }
+  const payload = { autoplay: state.autoplay, ...synthesis };
 
   if (isText) {
     payload.text = textInput.value.trim();
@@ -176,7 +192,21 @@ async function loadOptions() {
   } catch {
     // Keep built-in fallback options when the app starts before the API responds.
   }
-  renderVoiceControls();
+  try {
+    await loadProfiles();
+    if (window.location.pathname === "/voice-sample") await openProfileEditor();
+  } catch (error) { document.querySelector("#profile-status").textContent = error.message; }
+}
+
+async function openProfileEditor() {
+  try {
+    const profiles = await loadProfiles();
+    const profile = selectedProfile();
+    stopPlayback();
+    showView("profile-editor");
+    await profileEditor.open(profile, profiles);
+    editorOpen = true;
+  } catch (error) { document.querySelector("#profile-status").textContent = error.message; }
 }
 
 async function loadHistory() {
@@ -644,7 +674,7 @@ playPauseButton.addEventListener("click", () => {
   audioPlayer.pause();
 });
 
-registerVoiceControlEvents({ stopPlayback });
+registerVoiceControlEvents({ onEdit: openProfileEditor });
 
 audioPlayer.addEventListener("play", () => {
   playPauseButton.textContent = "Pause";
@@ -714,7 +744,7 @@ initOcr({
   setInputMode,
   renderOptions: renderVoiceControls,
   currentLanguage,
-  voiceGenerationPayload,
+  voiceGenerationPayload: refreshGenerationPayload,
   stopPlayback,
   openGeneration,
 });

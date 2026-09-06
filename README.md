@@ -9,8 +9,8 @@ The app focuses on long-form reading. It generates audio incrementally so playba
 - Generate speech from pasted text.
 - Fetch and extract simple HTML article URLs.
 - Upload or capture page images, review OCR output, then generate audio from the reviewed text.
-- Choose language, voice, speed, and cached voice samples.
-- Audition Qwen instruction-controlled voice samples for long-form reading at `/voice-sample`.
+- Choose named, saved voice profiles with voice, speed, model, instructions, and cached previews.
+- Edit profiles in-app or at `/voice-sample`; preview unsaved changes and save without losing input drafts.
 - Play long articles through one continuous audio endpoint backed by incrementally stitched MP3 segments.
 - Track segment-based progress and keep the currently read text highlighted during continuous playback.
 - Resume and delete History entries, including cached audio and linked OCR source images.
@@ -44,7 +44,7 @@ flowchart LR
 
 The database owns metadata and relationships. The filesystem owns bytes:
 
-- SQLite: generations, text segments, audio segment metadata, continuous audio artifact metadata, OCR drafts/images, voice preferences, and playback telemetry.
+- SQLite: generations, text segments, audio segment metadata, continuous audio artifact metadata, OCR drafts/images, voice preferences, named voice profiles, and playback telemetry.
 - `data/audio/<generation_id>/`: generated segment MP3s plus `full.mp3`.
 - `data/images/<ocr_draft_id>/`: stored source images for OCR drafts.
 
@@ -71,10 +71,10 @@ Readvox currently supports Qwen realtime TTS and Qwen OCR through provider adapt
 TTS_PROVIDER=qwen
 OCR_PROVIDER=qwen
 DASHSCOPE_API_KEY=...
-TTS_MODEL=qwen3-tts-flash-realtime
+TTS_MODEL=qwen3-tts-instruct-flash-realtime
 OCR_MODEL=qwen-vl-ocr
 QWEN_REALTIME_URL=wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime
-TTS_DEFAULT_ENGLISH_VOICE=Jennifer
+TTS_DEFAULT_ENGLISH_VOICE=Kai
 TTS_DEFAULT_CHINESE_VOICE=Cherry
 ```
 

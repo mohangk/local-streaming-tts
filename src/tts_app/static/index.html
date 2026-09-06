@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Readvox</title>
-    <link rel="stylesheet" href="/static/styles.css?v=playback-progress-1" />
+    <link rel="stylesheet" href="/static/styles.css?v=voice-editor-2" />
   </head>
   <body>
     <main class="app-shell">
@@ -37,36 +37,15 @@
           <button id="generate-ocr-audio" class="primary-action hidden" type="button">Generate audio</button>
           <div id="ocr-drafts-list" class="history-list hidden"></div>
           <div id="voice-panel" class="voice-panel">
-            <div id="voice-summary" class="voice-summary">
-              <div>
-                <div id="voice-summary-text" class="voice-summary-text">Voice</div>
-                <div id="voice-summary-speed" class="voice-summary-speed">1x</div>
-              </div>
+            <label id="ocr-language-field" class="field-label hidden" for="language-select">OCR language
+              <select id="language-select" aria-label="OCR language"><option value="en">English</option><option value="zh">Chinese</option></select>
+            </label>
+            <label class="field-label" for="profile-select">Voice</label>
+            <div class="named-voice-row">
+              <select id="profile-select" aria-label="Voice"></select>
               <button id="voice-edit" class="secondary-action compact-action" type="button">Edit</button>
             </div>
-            <div id="voice-expanded" class="voice-expanded hidden">
-              <div class="option-grid">
-                <label class="field-label" for="language-select">
-                  Language
-                  <select id="language-select" aria-label="Language"></select>
-                </label>
-                <label class="field-label" for="voice-select">
-                  Voice
-                  <span class="voice-row">
-                    <select id="voice-select" aria-label="Voice"></select>
-                    <button id="voice-star" class="secondary-action icon-action" type="button" aria-label="Mark voice as preferred">☆</button>
-                  </span>
-                </label>
-                <label class="field-label" for="speed-select">
-                  Speed
-                  <select id="speed-select" aria-label="Speech speed"></select>
-                </label>
-              </div>
-              <div class="voice-actions">
-                <button id="voice-sample" class="secondary-action" type="button">Sample</button>
-                <button id="voice-done" class="secondary-action" type="button">Done</button>
-              </div>
-            </div>
+            <p id="profile-status" class="status-line" aria-live="polite"></p>
           </div>
           <label class="toggle-row">
             <input id="autoplay" type="checkbox" checked />
@@ -74,6 +53,58 @@
           </label>
           <button class="primary-action" type="submit">Generate</button>
         </form>
+      </section>
+
+
+      <section id="profile-editor" class="view" aria-labelledby="profile-editor-title">
+        <h1 id="profile-editor-title">Edit voice</h1>
+        <div class="profile-save-actions">
+          <button id="profile-save" class="primary-action" type="button">Save</button>
+          <button id="profile-save-as" class="secondary-action" type="button">Save As…</button>
+          <button id="profile-cancel" class="secondary-action" type="button">Cancel</button>
+        </div>
+        <div class="panel">
+          <label class="field-label" for="editor-profiles">Saved voice</label>
+          <div class="named-voice-row">
+            <select id="editor-profiles" aria-label="Saved voice"></select>
+            <button id="profile-delete" class="warning-action compact-action" type="button">Delete</button>
+          </div>
+          <div id="instruction-status" class="status-line" aria-live="polite">Ready</div>
+          <label class="field-label" for="profile-name">Name<input type="text" id="profile-name" maxlength="120" required></label>
+        </div>
+        <form id="instruction-sample-form" class="panel sample-panel">
+          <div class="option-grid">
+            <label class="field-label" for="instruction-language">
+              Language
+              <select id="instruction-language" aria-label="Language"></select>
+            </label>
+            <label class="field-label" for="instruction-voice">
+              Base voice
+              <select id="instruction-voice" aria-label="Base voice"></select>
+            </label>
+            <label class="field-label" for="instruction-speed">
+              Speed
+              <select id="instruction-speed" aria-label="Speech speed"></select>
+            </label>
+          </div>
+          <label class="field-label" for="instruction-model">
+            Model
+            <select id="instruction-model" aria-label="Instruction model"></select>
+          </label>
+          <label class="field-label" for="instruction-prompt">
+            Instructions
+            <textarea id="instruction-prompt" rows="8">Read in a calm long-form audiobook style. Use clear articulation, steady pacing, low vocal fatigue, natural sentence endings, and restrained expressiveness. Avoid theatrical delivery, sales energy, exaggerated intonation, whispering, vocal fry, or sharp news-anchor emphasis.</textarea>
+          </label>
+          <label class="field-label" for="instruction-text">
+            Preview text
+            <textarea id="instruction-text" rows="8">This long-form audiobook sample tests whether the voice stays comfortable over dense nonfiction. The reader should handle longer sentences, quoted phrases, commas, and paragraph transitions without sounding rushed, flat, or overly dramatic.</textarea>
+          </label>
+          <div class="voice-actions">
+            <button id="instruction-sample" class="primary-action" type="submit">Preview</button>
+            <button id="clear-instruction-samples" class="secondary-action" type="button">Clear samples</button>
+          </div>
+        </form>
+        <audio id="instruction-audio" controls></audio>
       </section>
 
       <section id="history-view" class="view" aria-labelledby="history-title">
@@ -114,6 +145,6 @@
     </div>
 
     <audio id="audio-player"></audio>
-    <script type="module" src="/static/app.js?v=long-samples-1"></script>
+    <script type="module" src="/static/app.js?v=voice-editor-2"></script>
   </body>
 </html>

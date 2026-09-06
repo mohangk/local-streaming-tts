@@ -112,7 +112,10 @@ def _playback_telemetry_optional_int(value: Any, field_name: str) -> int | None:
     return value
 
 
-class Storage:
+from tts_app.profile_storage import ProfileStorageMixin, ensure_profile_schema
+
+
+class Storage(ProfileStorageMixin):
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -134,6 +137,7 @@ class Storage:
 
     def init_schema(self) -> None:
         with self.connection() as conn:
+            ensure_profile_schema(conn)
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS generations (

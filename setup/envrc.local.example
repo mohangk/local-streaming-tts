@@ -4,11 +4,11 @@
 
 TTS_PROVIDER=qwen
 DASHSCOPE_API_KEY=
-TTS_MODEL=qwen3-tts-flash-realtime
+TTS_MODEL=qwen3-tts-instruct-flash-realtime
 OCR_PROVIDER=qwen
 OCR_MODEL=qwen-vl-ocr
 QWEN_REALTIME_URL=wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime
-TTS_DEFAULT_ENGLISH_VOICE=Jennifer
+TTS_DEFAULT_ENGLISH_VOICE=Kai
 TTS_DEFAULT_CHINESE_VOICE=Cherry
 TTS_DATA_DIR=/home/mohan/tts/data
 TTS_SEGMENT_MAX_CHARS=550

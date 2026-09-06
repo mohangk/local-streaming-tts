@@ -129,3 +129,9 @@ ss -ltnp | grep :8001
 | Missing API key | Qwen generations fail with provider auth errors | Add `DASHSCOPE_API_KEY` to `.envrc.local`; restart |
 | Env file missing | Unit fails during startup | Copy `setup/envrc.local.example` to `.envrc.local`; restart |
 | Port 8001 already in use | Unit fails with address-in-use error | `ss -ltnp \| grep :8001`, stop the conflicting process, restart |
+
+### Named voice profile upgrade
+
+Set the local `.envrc.local` override to `TTS_MODEL=qwen3-tts-instruct-flash-realtime` before restarting; a preexisting `TTS_MODEL` overrides the new default. New installations use `TTS_DEFAULT_ENGLISH_VOICE=Kai`, a supported instruction voice. Review any explicit legacy default voice override separately; named profiles snapshot their own supported voice/model. Keep credentials local and uncommitted.
+
+Check `/api/generations` for `queued` or `running` work and wait for it to finish before restarting `tts.service`. Startup adds profile tables and editable English/Chinese defaults without rewriting generation settings or touching cached audio. Profiles are shared across devices; selected profile IDs are browser-local.
