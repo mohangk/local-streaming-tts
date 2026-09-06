@@ -10,6 +10,7 @@ SRC_DIR = Path("src/tts_app")
 PYPROJECT = Path("pyproject.toml")
 APP_JS_FILES = (
     "app.js",
+    "history.js",
     "ocr.js",
     "playback.js",
     "telemetry.js",
@@ -129,7 +130,7 @@ def test_frontend_static_asset_version_bumped_for_playback_progress():
     sources = [html, *((STATIC_DIR / filename).read_text(encoding="utf-8") for filename in JS_FILES)]
 
     assert 'href="/static/styles.css?v=playback-progress-1"' in html
-    assert 'src="/static/app.js?v=long-samples-1"' in html
+    assert 'src="/static/app.js?v=history-failures-1"' in html
     assert "playback-progress-1" in (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     assert "playback-progress-1" in (STATIC_DIR / "ocr.js").read_text(encoding="utf-8")
     assert "playback-progress-1" in (STATIC_DIR / "voice-controls.js").read_text(encoding="utf-8")
