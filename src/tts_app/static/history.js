@@ -35,9 +35,17 @@ export function createHistory({ historyList, historySearch, playerStatus, state,
         const urlMarkup = item.url
           ? `<div class="history-item-url">${escapeHtml(item.url)}</div>`
           : "";
+        const failed = item.status === "failed";
+        const failureMarkup = failed
+          ? '<div class="history-failure"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 21h20Z"/><path d="M12 9v5m0 3v1"/></svg> Generation failed</div>'
+          : "";
+        const errorMarkup = item.error
+          ? `<div><dt>Error</dt><dd class="history-error">${escapeHtml(item.error)}</dd></div>`
+          : "";
         return `
-          <article class="history-item" data-generation-id="${item.id}">
+          <article class="history-item${failed ? " history-item-failed" : ""}" data-generation-id="${item.id}">
             <div class="history-item-title">${escapeHtml(item.title)}</div>
+            ${failureMarkup}
             <div class="history-item-meta">${escapeHtml(item.status)} ${escapeHtml(created)}</div>
             ${urlMarkup}
             <div class="history-item-preview">${escapeHtml(item.text_preview)}</div>
@@ -48,6 +56,7 @@ export function createHistory({ historyList, historySearch, playerStatus, state,
                 <div><dt>Speed</dt><dd>${escapeHtml(formatSpeed(speed))}</dd></div>
                 <div><dt>Provider</dt><dd>${escapeHtml(item.provider)}</dd></div>
                 <div><dt>Progress</dt><dd>${escapeHtml(progress)}%</dd></div>
+                ${errorMarkup}
               </dl>
             </details>
             <div class="history-actions">

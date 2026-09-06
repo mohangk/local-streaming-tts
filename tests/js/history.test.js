@@ -81,3 +81,48 @@ describe("History behavior", () => {
     expect(historyList.textContent).toContain("Unable to load history");
   });
 });
+
+describe("History failure indicators", () => {
+  it("marks only failed generations with a prominent text and icon indicator", () => {
+    state.generations = ["failed", "queued", "running", "completed"].map((status, id) => row({ id, status }));
+    history.renderHistory();
+    const cards = [...historyList.querySelectorAll("article")];
+    expect(cards[0].querySelector(".history-failure").textContent).toContain("Generation failed");
+    expect(cards[0].querySelector('.history-failure [aria-hidden="true"]')).not.toBeNull();
+    expect(cards[0].classList.contains("history-item-failed")).toBe(true);
+    for (const card of cards.slice(1)) {
+      expect(card.querySelector(".history-failure")).toBeNull();
+      expect(card.classList.contains("history-item-failed")).toBe(false);
+    }
+    expect(cards[1].textContent).toContain("queued");
+    expect(cards[2].textContent).toContain("running");
+    expect(cards[3].textContent).toContain("completed");
+  });
+
+  it("shows diagnostic errors as text in Details without interpreting HTML", () => {
+    const error = 'Generation interrupted after segment 2\n<img src=x onerror="alert(1)"> & diagnostic';
+    state.generations = [row({ status: "failed", error })];
+    history.renderHistory();
+    expect(historyList.querySelector(".history-details .history-error").textContent).toBe(error);
+    expect(historyList.querySelector("img")).toBeNull();
+    expect(historyList.querySelector(".history-details").open).toBe(false);
+  });
+
+  it("keeps failed partial audio accessible through the existing Open action", () => {
+    state.generations = [row({ status: "failed", error: "Interrupted", progress_percent: 50 })];
+    history.renderHistory();
+    const button = historyList.querySelector('[data-action="open"]');
+    expect(button.disabled).toBe(false);
+    button.click();
+    expect(openGeneration).toHaveBeenCalledWith(7, { subscribe: false, autoplay: true, button });
+    expect(historyList.textContent).toContain("50%");
+    expect(historyList.querySelector('[data-action="delete"]')).not.toBeNull();
+  });
+
+  it("still marks failures when no diagnostic was stored", () => {
+    state.generations = [row({ status: "failed", error: null })];
+    history.renderHistory();
+    expect(historyList.textContent).toContain("Generation failed");
+    expect(historyList.querySelector(".history-error")).toBeNull();
+  });
+});

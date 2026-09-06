@@ -77,7 +77,8 @@ The frontend should stay framework-free, mobile-first, and plain JavaScript, but
 
 Current module direction:
 
-- `app.js`: app bootstrap, top-level navigation, shared generation/playback/history orchestration.
+- `app.js`: app bootstrap, top-level navigation, shared generation/playback orchestration.
+- `history.js`: History rendering, search, deletion, and open actions delegated to app playback; failed status and escaped stored diagnostics leave partial audio accessible.
 - `dom.js`: DOM element lookups.
 - `state.js`: shared browser state.
 - `utils.js`: small reusable helpers such as escaping and busy-button handling.
@@ -85,7 +86,6 @@ Current module direction:
 
 Future modularization should split `app.js` further when touching related behavior:
 
-- `history.js`: history list rendering, deletion, and history click actions.
 - `playback.js`: audio queue, segment playback, progress persistence, autoplay/manual playback, scroll-follow.
 - `generation-form.js`: Text/URL/Image mode switching, form payload creation, and submit state.
 - `voice-controls.js`: language, voice, speed, preference, and sample playback behavior.
